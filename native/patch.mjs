@@ -50,9 +50,10 @@ if (process.env.PI_TERN_NATIVE === "1" && typeof ProcessTerminal === "function" 
     state: () => __sink.nativeState(),
     suspend: () => __sink.suspend(),
     resume: () => __sink.resume(),
-    // The full surface in lib/surface/ reaches the sink through these two only.
+    // The full surface in lib/surface/ reaches the sink through these three only.
     attachSurface: (surface) => __sink.active !== false && __sink.attachSurface(surface),
     invalidate: () => __sink.invalidate(),
+    blob: (data, mime) => (__sink.active !== false ? __sink.blob(data, mime) : undefined),
     /**
      * Give the pane back to pi's own TUI and stop drawing a surface.
      *

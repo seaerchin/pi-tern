@@ -12,8 +12,8 @@ export type { SemanticNode };
 export type TernEvent = Record<string, unknown>;
 
 /**
- * A pi-tui component as the areas read it. Only `children` and `render()` are used, as ADR 0002
- * allows. Anything else on a component is a pi internal and needs its own decision.
+ * A pi-tui component as the areas read it. Only `children`, the class name and `render()` are used,
+ * as ADR 0002 allows. Anything else on a component is a pi internal and needs its own decision.
  */
 export interface TuiComponent {
 	render(width: number): string[];
@@ -26,6 +26,10 @@ export interface SurfaceHost {
 	tui(): TuiComponent | null;
 	/** Repaint soon. Call it when state changed that pi itself does not redraw. */
 	invalidate(): void;
+	/** Record a problem an area survived, such as a pi structure it no longer recognises. */
+	log(message: string): void;
+	/** Send base64 image bytes to Tern and return the id for an `image` node's `blob` prop. */
+	blob(data: string, mime: string): string | undefined;
 }
 
 /**

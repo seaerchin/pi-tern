@@ -34,7 +34,7 @@ test("the dock is rows above, the composer, then rows below, like the prototype"
 	const editor = fakeEditor("hi", { line: 0, col: 2 });
 	const tui = fakeTui(box(editor));
 	assert.equal(findEditor(tui), editor);
-	const dock = createDock({} as ExtensionAPI, { tui: () => tui, invalidate() {} });
+	const dock = createDock({} as ExtensionAPI, { tui: () => tui, invalidate() {}, log() {}, blob: () => undefined });
 	const nodes = dock.describe(80, [editorNode(editor)]);
 	assert.deepEqual(
 		nodes.map((node) => [node.id, node.k]),
@@ -47,15 +47,19 @@ test("the dock is rows above, the composer, then rows below, like the prototype"
 test("while a dialog holds the editor slot, the slot shows as rows", () => {
 	const tui = fakeTui(box(rows("Pick one", "> a", "  b")));
 	assert.equal(findEditor(tui), null);
-	const nodes = createDock({} as ExtensionAPI, { tui: () => tui, invalidate() {} }).describe(80, []);
+	const nodes = createDock({} as ExtensionAPI, { tui: () => tui, invalidate() {}, log() {}, blob: () => undefined }).describe(80, []);
 	assert.deepEqual(nodes[1], { id: "kx", k: "rows", p: { cols: 80, lines: ["Pick one", "> a", "  b"] } });
 });
 
 /** A pi whose handlers and widgets the test can drive. */
 function fakePi() {
-	const handlers = new Map<string, (event: unknown, ctx: unknown) => void>();
-	const pi = { on: (name: string, handler: (event: unknown, ctx: unknown) => void) => handlers.set(name, handler) };
-	return { pi: pi as unknown as ExtensionAPI, handlers };
+	type Handler = (event: unknown, ctx: unknown) => void;
+	const handlers = new Map<string, Handler[]>();
+	const pi = { on: (name: string, handler: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), handler]) };
+	const emit = (name: string, event: unknown, ctx: unknown) => {
+		for (const handler of handlers.get(name) ?? []) handler(event, ctx);
+	};
+	return { pi: pi as unknown as ExtensionAPI, handlers, emit };
 }
 
 function withHandle(handle: NativeHandle | undefined, run: () => void) {
@@ -79,6 +83,7 @@ function fakeHandle(semantic: boolean, attached: SemanticSurface[]): NativeHandl
 		fallback: () => true,
 		attachSurface: (surface) => attached.push(surface) > 0,
 		invalidate() {},
+		blob: () => undefined,
 	};
 }
 
@@ -95,14 +100,17 @@ test("outside the native launcher, and with PI_TERN_SEMANTIC=0, the surface regi
 test("inside the native surface it attaches once pi's TUI arrives through the widget factory", () => {
 	const attached: SemanticSurface[] = [];
 	withHandle(fakeHandle(true, attached), () => {
-		const { pi, handlers } = fakePi();
+		const { pi, emit } = fakePi();
 		registerNativeSurface(pi);
 		const tui = fakeTui(box(fakeEditor("", { line: 0, col: 0 }, { mode: "normal" })));
 		let placement: unknown;
-		handlers.get("session_start")?.(
+		const branch = [{ type: "message", id: "e1", message: { role: "user", content: "hi", timestamp: 1 } }];
+		emit(
+			"session_start",
 			{},
 			{
 				hasUI: true,
+				sessionManager: { getBranch: () => branch },
 				ui: {
 					setWidget: (_key: string, factory: (root: unknown) => unknown, options: { placement?: string }) => {
 						placement = options.placement;
@@ -114,7 +122,11 @@ test("inside the native surface it attaches once pi's TUI arrives through the wi
 		assert.equal(placement, "belowEditor");
 		assert.equal(attached.length, 1);
 		const regions = attached[0].describe(80);
-		assert.deepEqual(regions.main, [{ id: "xrows", k: "rows", p: { cols: 80, lines: ["transcript"] } }], "the transcript stub is pi's document as rows");
+		assert.deepEqual(
+			regions.main.map((node) => [node.id, node.k, node.p?.head]),
+			[["xuser-1", "card", "You"]],
+			"the transcript is built from the session branch",
+		);
 		assert.deepEqual(regions.layer, []);
 		assert.deepEqual(
 			regions.dock.map((node) => node.id),

@@ -12,11 +12,12 @@
  *
  * `listen:false`, so no acks are needed.
  */
+import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { Screen } from "./ansi.mjs";
 import { splitComposer, splitDock } from "./layout.mjs";
 import { diffChildren } from "./tree-diff.mjs";
-import { encodeMessage } from "./tsp.mjs";
+import { encodeMessage, ST } from "./tsp.mjs";
 
 const EDITOR_METHODS = ["render", "handleInput"];
 const TSP_PREFIX = "\x1b_tsp;";
@@ -71,6 +72,9 @@ export function createNativeSink({
 	let transcriptNodes = [];
 	const asideNodes = new Set();
 	const markdownNodes = new Map();
+	/** Blob ids by their base64 payload. Tern keeps a blob once sent, so each goes out once. */
+	const blobIds = new Map();
+	const apcLimit = Math.max(1024, Number(hello?.apc) || 65536);
 	let semanticSurface = null;
 	/** The node trees last sent per region, which the next repaint is diffed against. */
 	let sentTrees = { main: [], dock: [], layer: [] };
@@ -358,6 +362,31 @@ export function createNativeSink({
 			dirty = true;
 			schedule();
 			return true;
+		},
+		/**
+		 * Send image bytes with verb `b` and return the id an `image` node's `blob` prop names.
+		 *
+		 * Tern names a blob by the sha256 of its bytes. Inline `data` on an `image` node is accepted
+		 * but never drawn in 0.9.10. A body over the hello's `apc` limit goes in chunks tagged `c`,
+		 * with `m=1` on all but the last. Base64 has no `;`, so a chunk never reads as a parameter.
+		 */
+		blob(data, mime = "image/png") {
+			if (typeof data !== "string" || data.length === 0) return undefined;
+			const known = blobIds.get(data);
+			if (known) return known;
+			const id = createHash("sha256").update(Buffer.from(data, "base64")).digest("hex");
+			blobIds.set(data, id);
+			open();
+			const chunks = [];
+			for (let at = 0; at < data.length; at += apcLimit) chunks.push(data.slice(at, at + apcLimit));
+			chunks.forEach((body, index) => {
+				const more = index < chunks.length - 1 ? { m: 1 } : {};
+				const params = chunks.length === 1 ? { id, mime } : { id, mime, c: `b${blobIds.size}`, ...more };
+				const head = Object.entries(params).map(([key, value]) => `${key}=${value}`).join(";");
+				process.stdout.write(`${TSP_PREFIX}b;${head};${body}${ST}`);
+			});
+			record("b", { bytes: data.length }, { id, mime });
+			return id;
 		},
 		/** Ask for a repaint when session state changed without a TUI write. Coalesced like `feed`. */
 		invalidate() {

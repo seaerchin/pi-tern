@@ -12,6 +12,7 @@
  * The sink in `native/backend.mjs` owns the surface, the frames and the tree diff. This module only
  * assembles the areas into one `SemanticSurface` and attaches it.
  */
+import { appendFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SemanticSurface } from "../../native/native.d.mts";
 import { createComposer } from "./composer.ts";
@@ -19,6 +20,17 @@ import { createDialogs } from "./dialogs.ts";
 import { createDock } from "./dock.ts";
 import { nativeHandle, type SurfaceHost, type TuiComponent } from "./host.ts";
 import { createTranscript } from "./transcript.ts";
+
+/** Areas log to the sink's frame record, so a render check shows them next to the frames. */
+function recordSurfaceLog(message: string): void {
+	const recordPath = process.env.PI_TERN_TSP_RECORD;
+	if (!recordPath) return;
+	try {
+		appendFileSync(recordPath, `${JSON.stringify({ t: Date.now(), dir: "log", verb: "surface-log", params: {}, body: message })}\n`);
+	} catch {
+		/* logging is best effort */
+	}
+}
 
 /** An empty widget whose factory is the supported way to receive pi's TUI root. */
 const TUI_WIDGET = "pi-tern-surface";
@@ -28,7 +40,12 @@ export function registerNativeSurface(pi: ExtensionAPI): void {
 	if (!handle?.state().semantic) return;
 
 	let tui: TuiComponent | null = null;
-	const host: SurfaceHost = { tui: () => tui, invalidate: () => handle.invalidate() };
+	const host: SurfaceHost = {
+		tui: () => tui,
+		invalidate: () => handle.invalidate(),
+		log: recordSurfaceLog,
+		blob: (data, mime) => (typeof handle.blob === "function" ? handle.blob(data, mime) : undefined),
+	};
 	const transcript = createTranscript(pi, host);
 	const composer = createComposer(pi, host);
 	const dock = createDock(pi, host);

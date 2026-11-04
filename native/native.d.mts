@@ -72,6 +72,8 @@ export interface NativeHandle {
 	/** False in row copy mode, after a fallback, or once the pane was handed back. */
 	attachSurface(surface: SemanticSurface): boolean;
 	invalidate(): void;
+	/** Send image bytes once and return the id for an `image` node's `blob` prop. */
+	blob(data: string, mime?: string): string | undefined;
 }
 
 /** What Tern's `hello` reply tells us about the surface vocabulary. */
@@ -160,6 +162,8 @@ export interface NativeSink {
 	attachSurface(surface: SemanticSurface): boolean;
 	/** Repaint soon, for session state that changed without a TUI write. */
 	invalidate(): void;
+	/** Send base64 image bytes with verb `b`, once per payload. Returns the sha256 id, or undefined for no data. */
+	blob(data: string, mime?: string): string | undefined;
 	/** Strip TSP frames from pty input and route `e` events; returns what pi's TUI should see. */
 	handleInput(data: string): string;
 	feed(data: string): void;
