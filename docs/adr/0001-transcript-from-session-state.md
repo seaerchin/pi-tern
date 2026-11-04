@@ -12,11 +12,14 @@ The full surface builds the transcript's semantic nodes from Pi's session events
 - Transcript items with no session event (startup notices, `!` shell output) need a separate decision.
 - Anything Pi draws inside the composer's border, such as the working spinner, needs its own node.
 
-## Extended: the footer
+## Extended: OMP's shapes and the footer
 
-Pi's built-in footer is a native `status` bar, not a row fallback. The rows showed Tern's fallback badge on every screen, and the footer's numbers are session data.
+The surface sends the node shapes and roles OMP sends, because Tern styles them by role (`omp.user`, `omp.assistant`, `omp.thinking`, `omp.editor`, `omp.composer.*`, `omp.working`, `omp.tool.*`). With `pi.*` roles Tern drew plain cards with a fallback look.
 
-- Cwd, session name, usage totals, context usage, model and thinking level come from the extension API.
+- User messages are user-toned cards. Replies are an `omp.assistant` column. Thinking is a foldable section.
+- Tool calls are Tern `tool` nodes, so Tern draws the verb, target, facts and status.
+- The composer sits in OMP's `omp.editor` frame: the context meter, the input, then a bar with the model and effort chips, the usage facts, the cost and send or Stop.
+- In native mode OMP has no separate status line, so pi's built-in footer is folded into that bar. Tern draws the pane's directory itself beside the bar.
 - Pi keeps the git branch, the extension statuses and the provider count only in its footer's data provider. The surface reads them from the built-in `FooterComponent` by shape.
 - A custom footer from `setFooter`, or a provider whose shape changed, stays rows and logs once.
-- Each item is its own `seg` with a drop priority, so Tern removes the least useful items first on a narrow screen. Context usage is kept longest.
+- Role names are Tern's styling contract with OMP. A Tern release that renames them leaves the surface unstyled but working.

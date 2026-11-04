@@ -7,6 +7,7 @@
  *   transcript.ts  `main`   messages, thinking and tool calls (#10)
  *   composer.ts    `dock`   the `editor` node, and its autocomplete overlay in `layer` (#11)
  *   dock.ts        `dock`   pi's other dock containers around the composer (#12)
+ *   frame.ts       `dock`   OMP's composer frame, carrying pi's footer
  *   dialogs.ts     `layer`  built-in dialogs as overlays (#16)
  *   describers.ts           the describer registry on pi's event bus (#17, ADR 0003)
  *   subagents.ts            the built-in describer for pi-subagents' `subagent` tool (#17)
@@ -61,7 +62,7 @@ export function registerNativeSurface(pi: ExtensionAPI): NativeSurface | undefin
 	connectDescribers(pi, host, describers, kinds);
 	const transcript = createTranscript(pi, host, describers);
 	const composer = createComposer(pi, host);
-	const dock = createDock(pi, host);
+	const dock = createDock(pi, host, () => composer.submit());
 	const dialogs = createDialogs(pi, host);
 
 	const surface: SemanticSurface = {

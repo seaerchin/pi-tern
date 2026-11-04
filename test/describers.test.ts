@@ -333,7 +333,7 @@ test("through the transcript, the registry's description fills the card and a th
 	const describers = registry();
 	describers.register({ kind: "tool", key: "subagent", source: "builtin", describe: describeSubagent });
 	const card = () => buildTranscriptItems(branch, undefined, { ...NO_CONTEXT, describers }).find((item) => item.id === "xts1")?.nodes[0];
-	assert.equal(card()?.p?.head, "subagent scout");
+	assert.equal(card()?.p?.title, "subagent scout");
 	assert.deepEqual(card()?.c?.map((node) => [node.id, node.k]), [["xts1-a0", "agent"]]);
 	describers.register({
 		kind: "tool",
@@ -343,6 +343,6 @@ test("through the transcript, the registry's description fills the card and a th
 			throw new Error("local is broken");
 		},
 	});
-	assert.equal(card()?.p?.head, "subagent look", "the generic head names the tool and its main argument");
+	assert.deepEqual([card()?.p?.title, card()?.p?.target], ["subagent", "look"], "the generic head names the tool and its main argument");
 	assert.deepEqual(card()?.c?.map((node) => [node.id, node.k]), [["xts1-o", "ansi"]]);
 });

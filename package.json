@@ -49,7 +49,7 @@
 		"access": "public"
 	},
 	"scripts": {
-		"test": "node --experimental-strip-types --test test/protocol.test.ts test/native.test.ts test/features.test.ts test/refs.test.ts test/bridge-luau.test.ts test/native-sink.test.ts test/agent-setup.test.ts test/version.test.ts test/handshake.test.ts test/fleet-prune.test.ts test/package.test.ts test/tsp-hello.test.ts test/version-gate.test.ts test/session.test.ts test/host.test.ts test/plugin-api.test.ts test/host-load.test.ts test/tern-live.test.ts test/tree-diff.test.ts test/native-patch.test.ts test/surface.test.ts test/footer.test.ts test/transcript.test.ts test/composer.test.ts test/dialogs.test.ts test/block-kind.test.ts test/describers.test.ts",
+		"test": "node --experimental-strip-types --test test/protocol.test.ts test/native.test.ts test/features.test.ts test/refs.test.ts test/bridge-luau.test.ts test/native-sink.test.ts test/agent-setup.test.ts test/version.test.ts test/handshake.test.ts test/fleet-prune.test.ts test/package.test.ts test/tsp-hello.test.ts test/version-gate.test.ts test/session.test.ts test/host.test.ts test/plugin-api.test.ts test/host-load.test.ts test/tern-live.test.ts test/tree-diff.test.ts test/native-patch.test.ts test/surface.test.ts test/frame.test.ts test/transcript.test.ts test/composer.test.ts test/dialogs.test.ts test/block-kind.test.ts test/describers.test.ts",
 		"test:live": "node --experimental-strip-types --test test/live.test.ts",
 		"typecheck": "tsc --noEmit",
 		"lint": "oxlint index.ts lib test",

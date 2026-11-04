@@ -39,7 +39,7 @@ function component(name: string, lines: string[] = [], children?: TuiComponent[]
 const ids = (items: TranscriptItem[]) => items.map((item) => item.id);
 const nodeOf = (items: TranscriptItem[], id: string) => items.find((item) => item.id === id)?.nodes[0];
 
-test("saved messages become a user card, an assistant column, and one card per tool call after it", () => {
+test("saved messages become a user card, an assistant column, and one tool node per tool call after it", () => {
 	const branch = [
 		user("hello", 1),
 		assistant(2, { type: "thinking", thinking: "hmm" }, { type: "text", text: "sure" }, toolCall("c1", "read", { path: "a.ts" })),
@@ -51,15 +51,28 @@ test("saved messages become a user card, an assistant column, and one card per t
 	assert.deepEqual(nodeOf(items, "xuser-1"), {
 		id: "xuser-1",
 		k: "card",
-		p: { head: "You", variant: "bare", role: "pi.user" },
+		p: { role: "omp.user", tone: "user" },
 		c: [{ id: "xuser-1m", k: "md", p: { text: "hello" } }],
 	});
 	const reply = nodeOf(items, "xassistant-2");
-	assert.equal(reply?.k, "col");
-	assert.deepEqual(reply?.c?.map((node) => [node.k, node.p?.head ?? node.p?.text]), [["card", "Thinking"], ["md", "sure"]]);
-	assert.equal(reply?.c?.[0].p?.collapsed, true, "thinking starts collapsed");
+	assert.deepEqual([reply?.k, reply?.p?.role], ["col", "omp.assistant"]);
+	assert.deepEqual(reply?.c?.map((node) => [node.k, node.p?.role ?? node.p?.text]), [["section", "omp.thinking"], ["md", "sure"]]);
+	assert.equal(reply?.c?.[0].p?.collapsed, true, "a finished thought starts folded");
+	assert.deepEqual(reply?.c?.[0].c?.[0].p, { spans: [{ t: "Thought", s: "muted" }] });
 	const card = nodeOf(items, "xtc1");
-	assert.deepEqual(card?.p, { head: "read a.ts", status: "done", preview: { lines: 12 }, collapsible: true, collapsed: true });
+	assert.equal(card?.k, "tool");
+	assert.deepEqual(card?.p, {
+		role: "omp.tool.read",
+		name: "read",
+		title: "Read",
+		status: "done",
+		frame: "inline",
+		target: "a.ts",
+		targetKind: "path",
+		collapsible: true,
+		collapsed: true,
+		preview: "none",
+	});
 	assert.deepEqual(card?.c, [{ id: "xtc1-o", k: "ansi", p: { text: "file text" } }]);
 });
 
@@ -71,6 +84,8 @@ test("edit shows the saved patch as a diff and write shows its content as code",
 	];
 	const items = buildTranscriptItems(branch);
 	assert.deepEqual(nodeOf(items, "xte1")?.c, [{ id: "xte1-d", k: "diff", p: { text: "--- a.txt\n+++ a.txt\n@@ -1 +1 @@\n-hi\n+hello\n", path: "a.txt", mode: "unified" } }]);
+	assert.deepEqual([nodeOf(items, "xte1")?.p?.title, nodeOf(items, "xte1")?.p?.meta, nodeOf(items, "xte1")?.p?.frame], ["Edit", ["+1 \u22121"], "card"]);
+	assert.deepEqual(nodeOf(items, "xtw1")?.p?.meta, ["1 line"]);
 	assert.deepEqual(nodeOf(items, "xtw1")?.c, [{ id: "xtw1-c", k: "code", p: { text: "hi\n", path: "b.txt", numbers: true } }]);
 });
 
@@ -88,41 +103,52 @@ test("tool result images become image nodes that name the blob the host sent", (
 
 test("a tool call without a result is pending, or failed when its reply was aborted", () => {
 	const pending = buildTranscriptItems([assistant(1, toolCall("p1", "bash", { command: "ls -la\nmore" }))]);
-	assert.deepEqual([nodeOf(pending, "xtp1")?.p?.head, nodeOf(pending, "xtp1")?.p?.status], ["bash ls -la", "pending"]);
+	assert.deepEqual(
+		[nodeOf(pending, "xtp1")?.p?.title, nodeOf(pending, "xtp1")?.p?.target, nodeOf(pending, "xtp1")?.p?.targetKind, nodeOf(pending, "xtp1")?.p?.status],
+		["Bash", "ls -la", "command", "pending"],
+	);
 	const aborted = buildTranscriptItems([entry({ role: "assistant", content: [toolCall("p2", "bash", { command: "sleep 9" })], timestamp: 2, stopReason: "aborted" })]);
 	assert.equal(nodeOf(aborted, "xtp2")?.p?.status, "error");
 	assert.deepEqual(nodeOf(aborted, "xtp2")?.c, [{ id: "xtp2-o", k: "ansi", p: { text: "Operation aborted" } }]);
 	const reply = nodeOf(aborted, "xassistant-2");
 	assert.deepEqual(reply?.c?.at(-1), {
 		id: "xassistant-2err",
-		k: "row",
-		p: { gap: "sm", align: "baseline" },
-		c: [
-			{ id: "xassistant-2errb", k: "badge", p: { text: "Aborted", tone: "warning" } },
-			{ id: "xassistant-2errm", k: "md", p: { text: "Operation aborted", tone: "warning" } },
-		],
+		k: "text",
+		p: { spans: [{ t: "Operation aborted", s: "error" }], wrap: "word", role: "omp.assistant.abort" },
 	});
 });
 
 test("an aborted reply shows pi's own reason when it has one, and a failed reply its error", () => {
 	const marker = (message: Partial<MessageLike>) =>
 		buildTranscriptItems([entry({ role: "assistant", content: [{ type: "text", text: "a" }], timestamp: 3, ...message })])[0].nodes[0].c?.at(-1);
-	assert.equal(marker({ stopReason: "aborted", errorMessage: "Request was aborted" })?.c?.[1].p?.text, "Operation aborted");
-	assert.equal(marker({ stopReason: "aborted", errorMessage: "Stopped by the hook" })?.c?.[1].p?.text, "Stopped by the hook");
-	assert.deepEqual(
-		marker({ stopReason: "error", errorMessage: "overloaded" })?.c?.map((node) => node.p),
-		[{ text: "Error", tone: "error" }, { text: "overloaded", tone: "error" }],
-	);
+	const spans = (node: SemanticNode | undefined) => (node?.p?.spans as { t: string }[] | undefined)?.[0]?.t;
+	assert.equal(spans(marker({ stopReason: "aborted", errorMessage: "Request was aborted" })), "Operation aborted");
+	assert.equal(spans(marker({ stopReason: "aborted", errorMessage: "Stopped by the hook" })), "Stopped by the hook");
+	const failed = marker({ stopReason: "error", errorMessage: "overloaded" });
+	assert.deepEqual([failed?.k, failed?.p, failed?.c?.[0].p], ["card", { role: "omp.error", tone: "error" }, { text: "overloaded", role: "omp.error.message" }]);
 });
 
-test("! output is a card with the command as head and the output as ansi", () => {
+test("! output is a Bash tool node marked as yours, with the output as ansi", () => {
 	const items = buildTranscriptItems([entry({ role: "bashExecution", command: "echo hi", output: "hi\n", exitCode: 0, cancelled: false, timestamp: 5 })]);
 	assert.deepEqual(items[0].component, "BashExecutionComponent");
 	assert.deepEqual(items[0].nodes, [
 		{
 			id: "xbashExecution-5",
-			k: "card",
-			p: { head: "$ echo hi", status: "done", preview: { lines: 12 }, role: "pi.bash", collapsible: true, collapsed: true },
+			k: "tool",
+			p: {
+				role: "omp.tool.bash",
+				name: "bash",
+				title: "Bash",
+				target: "echo hi",
+				targetKind: "command",
+				lang: "bash",
+				status: "done",
+				badges: [{ text: "you", title: "Run with ! in the composer" }],
+				frame: "card",
+				collapsible: true,
+				collapsed: true,
+				preview: { tail: 12 },
+			},
 			c: [{ id: "xbashExecution-5o", k: "ansi", p: { text: "hi\n" } }],
 		},
 	]);
@@ -167,10 +193,10 @@ test("a skill invocation is a collapsed skill card, then the user's own text", (
 	const text = '<skill name="tdd" location="/s/tdd/SKILL.md">\nred green\n</skill>\n\nfix the bug';
 	const items = buildTranscriptItems([user(text, 3)]);
 	assert.deepEqual(
-		items.map((item) => [item.id, item.component, item.nodes[0].p?.head]),
+		items.map((item) => [item.id, item.component, item.nodes[0].p?.head ?? item.nodes[0].p?.role]),
 		[
 			["xuser-3s", "SkillInvocationMessageComponent", "Skill tdd"],
-			["xuser-3", "UserMessageComponent", "You"],
+			["xuser-3", "UserMessageComponent", "omp.user"],
 		],
 	);
 	assert.equal(items[1].nodes[0].c?.[0].p?.text, "fix the bug");
@@ -211,9 +237,9 @@ test("a tool describer replaces the default card content, with its body ids pref
 		},
 	});
 	assert.deepEqual(seen, [["subagent", "done", true, false]]);
-	assert.deepEqual([nodeOf(items, "xts1")?.p?.head, nodeOf(items, "xts1")?.c], ["Subagent", [{ id: "xts1-n", k: "md", p: { text: "ran" } }]]);
+	assert.deepEqual([nodeOf(items, "xts1")?.p?.title, nodeOf(items, "xts1")?.p?.target, nodeOf(items, "xts1")?.c], ["Subagent", undefined, [{ id: "xts1-n", k: "md", p: { text: "ran" } }]]);
 	const fallback = buildTranscriptItems(branch, undefined, { ...NO_CONTEXT, describers: { tool: () => undefined } });
-	assert.deepEqual(nodeOf(fallback, "xts1")?.p?.head, "subagent look", "no describer: the generic card");
+	assert.deepEqual([nodeOf(fallback, "xts1")?.p?.title, nodeOf(fallback, "xts1")?.p?.target], ["subagent", "look"], "no describer: the generic tool node");
 });
 
 // The chatContainer walk.
@@ -361,15 +387,7 @@ test("an interrupted streaming reply keeps its nodes, stops streaming and gains 
 			"xassistant-2err",
 			"xassistant-2",
 			null,
-			{
-				id: "xassistant-2err",
-				k: "row",
-				p: { gap: "sm", align: "baseline" },
-				c: [
-					{ id: "xassistant-2errb", k: "badge", p: { text: "Aborted", tone: "warning" } },
-					{ id: "xassistant-2errm", k: "md", p: { text: "Operation aborted", tone: "warning" } },
-				],
-			},
+			{ id: "xassistant-2err", k: "text", p: { spans: [{ t: "Operation aborted", s: "error" }], wrap: "word", role: "omp.assistant.abort" } },
 		],
 	]);
 });
@@ -377,7 +395,7 @@ test("an interrupted streaming reply keeps its nodes, stops streaming and gains 
 test("a toggle on a transcript card is consumed and kept across repaints", () => {
 	const { pi, emit } = fakePi();
 	const transcript = createTranscript(pi, fakeHost(component("Container", [], [])));
-	emit("session_start", {}, { sessionManager: { getBranch: () => [assistant(1, toolCall("t1", "ls", {}))] } });
+	emit("session_start", {}, { sessionManager: { getBranch: () => [assistant(1, toolCall("t1", "ls", {})), toolResult("t1", "a.ts")] } });
 	assert.equal(transcript.onEvent({ ev: "toggle", id: "xtt1", collapsed: false }), true);
 	assert.equal(transcript.describe(80).find((node) => node.id === "xtt1")?.p?.collapsed, false);
 	assert.equal(transcript.onEvent({ ev: "toggle", id: "ke", collapsed: true }), false, "dock ids are not the transcript's");

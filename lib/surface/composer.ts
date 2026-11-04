@@ -23,6 +23,8 @@ export interface Composer {
 	focus(): string | null;
 	/** True when the event was for the composer. The composer has applied it or dropped it. */
 	onEvent(event: TernEvent): boolean;
+	/** Send the draft, as a click on the frame's send control asks. */
+	submit(): void;
 }
 
 /** Where `pi-vim-editor` publishes its Vim status on the editor instance. */
@@ -363,6 +365,10 @@ export function createComposer(pi: ExtensionAPI, host: SurfaceHost): Composer {
 			const editor = findEditor(host.tui());
 			if (editor) applyEditorEvent(editor, event, warn);
 			return true;
+		},
+		submit() {
+			const editor = findEditor(host.tui());
+			if (editor) applyEditorEvent(editor, { ev: "send", text: String(editor.getText() ?? "") }, warn);
 		},
 	};
 }

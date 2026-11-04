@@ -53,7 +53,7 @@ test("a container's blank edges are dropped, and an all-blank container shows no
 	assert.deepEqual(containerRows(undefined, 80), []);
 });
 
-test("while the agent runs, a shimmer stands in for the indicator pi draws in the composer border", () => {
+test("while the agent runs, OMP's working row stands in for the indicator pi draws in the composer border", () => {
 	const editor = fakeEditor("", { line: 0, col: 0 });
 	const tui = box(rows("transcript"), rows("queued: next"), rows("", ""), rows(), box(editor), rows(), rows("~/work"));
 	const { pi, emit } = fakePi();
@@ -65,7 +65,8 @@ test("while the agent runs, a shimmer stands in for the indicator pi draws in th
 	emit("turn_start", {}, {});
 	assert.equal(invalidated, 1, "only a change of state repaints");
 	const nodes = dock.describe(80, [editorNode(editor)]);
-	assert.deepEqual(nodes[1], { id: "kw", k: "shimmer", p: { text: WORKING_TEXT } }, "after pending, where pi's status container sits");
+	assert.deepEqual([nodes[1].id, nodes[1].k, nodes[1].p?.role], ["kw", "row", "omp.working"], "after pending, where pi's status container sits");
+	assert.equal(nodes[1].c?.find((node) => node.k === "shimmer")?.p?.text, WORKING_TEXT);
 	emit("agent_end", {}, {});
 	assert.equal(invalidated, 2);
 	assert.deepEqual(ids(), ["kp", "ke", "kf"]);
@@ -170,8 +171,8 @@ test("inside the native surface it attaches once pi's TUI arrives through the wi
 		assert.equal(attached.length, 1);
 		const regions = attached[0].describe(80);
 		assert.deepEqual(
-			regions.main.map((node) => [node.id, node.k, node.p?.head]),
-			[["xuser-1", "card", "You"]],
+			regions.main.map((node) => [node.id, node.k, node.p?.role]),
+			[["xuser-1", "card", "omp.user"]],
 			"the transcript is built from the session branch",
 		);
 		assert.deepEqual(regions.layer, []);
@@ -218,7 +219,7 @@ test("tool cards go through the describer registry: the built-in subagent descri
 		assert.deepEqual(card()?.c?.map((node) => node.k), ["agent"], "the built-in describer");
 
 		events.emit("tern:describe", { kind: "tool", key: "subagent", source: "local", describe: () => ({ head: "mine", body: [{ id: "m", k: "md", p: { text: "local" } }] }) });
-		assert.deepEqual([card()?.p?.head, card()?.c?.[0].id], ["mine", "xts1-m"], "a local describer wins");
+		assert.deepEqual([card()?.p?.title, card()?.c?.[0].id], ["mine", "xts1-m"], "a local describer wins");
 
 		events.emit("tern:describe", {
 			kind: "tool",

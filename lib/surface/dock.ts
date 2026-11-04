@@ -1,15 +1,18 @@
 /**
- * Dock area (`dock`): the composer, framed by pi's pending, status, widget and footer containers.
+ * Dock area (`dock`): the composer in OMP's frame, with pi's pending, status and widget containers.
  *
  * Each container is rendered by its own components as one `rows` node, in pi's dock order. The
- * built-in footer is the exception: it is a native `status` bar (`footer.ts`). pi draws
- * its working indicator in the composer's top border, which the `editor` node replaces, so the
- * working state shows as a `shimmer` node in the status container's place. While a dialog holds
- * the editor slot, the slot shows as rows, unless the dialogs area mirrors it as an overlay.
+ * composer sits in OMP's `omp.editor` frame (`frame.ts`), whose bar carries pi's built-in footer, so
+ * the footer gets no rows of its own. pi draws its working indicator in the composer's top border,
+ * which the `editor` node replaces, so the working state shows as OMP's working row in the status
+ * container's place. While a dialog holds the editor slot, the slot shows as rows, unless the dialogs
+ * area mirrors it as an overlay.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createFooter } from "./footer.ts";
+import { createFrame, workingRow } from "./frame.ts";
 import { PI_SLOTS, piSlot, renderRows, type SemanticNode, type SurfaceHost, type TernEvent, type TuiComponent } from "./host.ts";
+
+export { WORKING_TEXT } from "./frame.ts";
 
 export interface Dock {
 	/**
@@ -30,9 +33,6 @@ const ROWS_ID = {
 	footer: "kf",
 } as const satisfies Partial<Record<keyof typeof PI_SLOTS, string>>;
 
-/** pi's message for its working indicator (`defaultWorkingMessage` in pi 1.5.0). */
-export const WORKING_TEXT = "Working";
-
 /**
  * A container's rows without its blank edges. pi pads idle and loader rows with blank lines that
  * only spaced the terminal layout, and an all-blank container gets no node.
@@ -47,19 +47,19 @@ export function containerRows(component: TuiComponent | undefined, cols: number)
 	return lines.slice(start, end);
 }
 
-/** Called once at extension load inside the native surface. Register `pi.on` handlers here. */
-export function createDock(pi: ExtensionAPI, host: SurfaceHost): Dock {
+/** Called once at extension load inside the native surface. `submit` sends the composer's draft. */
+export function createDock(pi: ExtensionAPI, host: SurfaceHost, submit: () => void = () => {}): Dock {
 	// Session events are the supported signal for a run. pi's indicator object is an editor internal.
-	let working = false;
+	let startedAt: number | null = null;
 	const setWorking = (next: boolean) => {
-		if (working === next) return;
-		working = next;
+		if ((startedAt !== null) === next) return;
+		startedAt = next ? Date.now() : null;
 		host.invalidate();
 	};
 	pi.on("agent_start", () => setWorking(true));
 	pi.on("turn_start", () => setWorking(true));
 	pi.on("agent_end", () => setWorking(false));
-	const footer = createFooter(pi, host);
+	const frame = createFrame(pi, host, submit);
 
 	return {
 		describe(cols, composer, dialogShown = false) {
@@ -74,16 +74,15 @@ export function createDock(pi: ExtensionAPI, host: SurfaceHost): Dock {
 			const statusCount = nodes.length;
 			pushRows("status");
 			// An editor that does not embed the indicator leaves pi's own loader in the status container.
-			if (working && nodes.length === statusCount) nodes.push({ id: "kw", k: "shimmer", p: { text: WORKING_TEXT } });
+			if (startedAt !== null && nodes.length === statusCount) nodes.push(workingRow(startedAt, Date.now()));
 			pushRows("widgetsAbove");
-			if (composer.length > 0) nodes.push(...composer);
+			const framed = frame.describe(composer, piSlot(tui, "footer"), startedAt !== null);
+			if (composer.length > 0) nodes.push(...framed.nodes);
 			else if (!dialogShown) nodes.push({ id: "kx", k: "rows", p: { cols, lines: renderRows(piSlot(tui, "editor"), cols) } });
 			pushRows("widgetsBelow");
-			const nativeFooter = footer.describe(piSlot(tui, "footer"));
-			if (nativeFooter) nodes.push(...nativeFooter);
-			else pushRows("footer");
+			if (framed.footerRows) pushRows("footer");
 			return nodes;
 		},
-		onEvent: () => false,
+		onEvent: (event) => frame.onEvent(event),
 	};
 }

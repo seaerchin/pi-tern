@@ -176,11 +176,6 @@ function mainArgument(args: Record<string, unknown>): string {
 	return typeof value === "string" ? value.split("\n")[0].slice(0, 120) : "";
 }
 
-export function toolHead(tool: Pick<ToolCallState, "toolName" | "args">): string {
-	const target = mainArgument(tool.args ?? {});
-	return target ? `${tool.toolName} ${target}` : tool.toolName;
-}
-
 /** Card state the user changed with a `toggle`, by node id. */
 export type CollapseOverrides = ReadonlyMap<string, boolean>;
 
@@ -229,6 +224,30 @@ function collapsibleCard(id: string, props: Record<string, unknown>, body: Seman
 	return { id, k: "card", p: { ...props, collapsible: true, collapsed: collapsed.get(id) ?? true }, c: body };
 }
 
+/** The verb Tern shows in a tool's head, as OMP names pi's built-in tools. */
+const TOOL_TITLES: Record<string, string> = { bash: "Bash", read: "Read", edit: "Edit", write: "Write", grep: "Grep", find: "Find", ls: "List" };
+const TARGET_KINDS: Record<string, string> = { bash: "command", read: "path", edit: "path", write: "path", ls: "path", grep: "pattern", find: "pattern" };
+/** Tools whose body is reference output, drawn frameless with the body folded away as OMP does. */
+const INLINE_TOOLS = new Set(["read", "grep", "find", "ls"]);
+
+/** Head facts after the target: lines added and removed for `edit`, the line count for `write`. */
+export function toolMeta(tool: ToolCallState): string[] | undefined {
+	const patch = tool.result?.details?.patch;
+	if (tool.toolName === "edit" && typeof patch === "string") {
+		const lines = patch.split("\n");
+		const added = lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length;
+		const removed = lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length;
+		return [`+${added} \u2212${removed}`];
+	}
+	if (tool.toolName === "write" && typeof tool.args.content === "string") {
+		const content = tool.args.content;
+		const count = content === "" ? 0 : content.replace(/\n$/, "").split("\n").length;
+		return [`${count} ${count === 1 ? "line" : "lines"}`];
+	}
+	return undefined;
+}
+
+/** A tool call as Tern's `tool` kind, which draws OMP's head (verb, target, facts, status, time). */
 export function toolCard(tool: ToolCallState, context: BuildContext = NO_CONTEXT): SemanticNode {
 	const id = `xt${safeId(tool.toolCallId)}`;
 	const isCollapsed = context.collapsed.get(id) ?? true;
@@ -245,10 +264,31 @@ export function toolCard(tool: ToolCallState, context: BuildContext = NO_CONTEXT
 		},
 		id,
 	);
-	const head = described?.head ?? toolHead(tool);
 	const status = described?.status ?? tool.status;
 	const body = described ? prefixIds(id, described.body) : defaultToolBody(id, tool, context);
-	return collapsibleCard(id, { head, status, preview: { lines: TOOL_PREVIEW_LINES } }, body, context.collapsed);
+	const name = tool.toolName;
+	const target = described ? undefined : mainArgument(tool.args ?? {});
+	const inline = !described && INLINE_TOOLS.has(name);
+	const p: Record<string, unknown> = {
+		role: `omp.tool.${safeId(name)}`,
+		name,
+		title: described?.head ?? TOOL_TITLES[name] ?? name,
+		status,
+		frame: inline ? "inline" : "card",
+	};
+	if (target) {
+		p.target = target;
+		if (TARGET_KINDS[name]) p.targetKind = TARGET_KINDS[name];
+		if (name === "bash") p.lang = "bash";
+	}
+	const meta = described ? undefined : toolMeta(tool);
+	if (meta) p.meta = meta;
+	if (body.length > 0) {
+		p.collapsible = true;
+		p.collapsed = isCollapsed;
+		p.preview = inline ? "none" : name === "bash" ? { tail: TOOL_PREVIEW_LINES } : { lines: TOOL_PREVIEW_LINES };
+	}
+	return { id, k: "tool", p, c: body };
 }
 
 /**
@@ -267,6 +307,30 @@ function tonedNode(id: string, label: string, tone: string, text: string, role?:
 	};
 }
 
+/**
+ * OMP's thinking section: open with a live "Thinking…" head while it streams, then folded under
+ * "Thought". pi saves no thinking duration, so the head names none.
+ */
+function thinkingSection(id: string, thinking: string, live: boolean, collapsed: CollapseOverrides): SemanticNode {
+	const head: SemanticNode = live
+		? {
+				id: `${id}h`,
+				k: "row",
+				p: { gap: "sm" },
+				c: [
+					{ id: `${id}hs`, k: "spinner", p: { style: "starburst", role: "omp.thinking.spin" } },
+					{ id: `${id}ht`, k: "text", p: { spans: [{ t: "Thinking\u2026", s: "muted" }] } },
+				],
+			}
+		: { id: `${id}h`, k: "text", p: { spans: [{ t: "Thought", s: "muted" }] } };
+	return {
+		id,
+		k: "section",
+		p: { role: live ? "omp.thinking.live" : "omp.thinking", collapsible: true, collapsed: collapsed.get(id) ?? !live },
+		c: [head, { id: `${id}m`, k: "md", p: { text: thinking, stream: live } }],
+	};
+}
+
 function assistantNodes(id: string, message: MessageLike, streaming: boolean, collapsed: CollapseOverrides): SemanticNode[] {
 	const blocks = Array.isArray(message.content) ? message.content : [];
 	const lastText = blocks.map((block) => block?.type).lastIndexOf("text");
@@ -276,17 +340,19 @@ function assistantNodes(id: string, message: MessageLike, streaming: boolean, co
 		if (block?.type === "text" && block.text) {
 			children.push({ id: blockId, k: "md", p: { text: block.text, stream: streaming && index === lastText } });
 		} else if (block?.type === "thinking" && block.thinking && !block.redacted) {
-			const text = [{ id: `${blockId}m`, k: "md", p: { text: block.thinking, stream: false } }];
-			children.push(collapsibleCard(blockId, { head: "Thinking", status: streaming ? "running" : undefined }, text, collapsed));
+			children.push(thinkingSection(blockId, block.thinking, streaming && index === blocks.length - 1, collapsed));
 		}
 	});
 	if (message.stopReason === "aborted") {
 		// pi shows a custom reason in place of its generic one, as `AssistantMessageComponent` does.
 		const reason = message.errorMessage && message.errorMessage !== "Request was aborted" ? message.errorMessage : "Operation aborted";
-		children.push(tonedNode(`${id}err`, "Aborted", "warning", reason));
+		children.push({ id: `${id}err`, k: "text", p: { spans: [{ t: reason, s: "error" }], wrap: "word", role: "omp.assistant.abort" } });
 	}
-	if (message.stopReason === "error") children.push(tonedNode(`${id}err`, "Error", "error", message.errorMessage || "Error"));
-	return children.length > 0 ? [{ id, k: "col", p: { role: "pi.assistant" }, c: children }] : [];
+	if (message.stopReason === "error") {
+		const text = message.errorMessage || "Error";
+		children.push({ id: `${id}err`, k: "card", p: { role: "omp.error", tone: "error" }, c: [{ id: `${id}errm`, k: "md", p: { text, role: "omp.error.message" } }] });
+	}
+	return children.length > 0 ? [{ id, k: "col", p: { role: "omp.assistant" }, c: children }] : [];
 }
 
 function userItems(id: string, message: MessageLike, collapsed: CollapseOverrides): TranscriptItem[] {
@@ -295,7 +361,7 @@ function userItems(id: string, message: MessageLike, collapsed: CollapseOverride
 	const userCard = (userId: string, userText: string): TranscriptItem => ({
 		id: userId,
 		component: PI_COMPONENTS.user,
-		nodes: [{ id: userId, k: "card", p: { head: "You", variant: "bare", role: "pi.user" }, c: [{ id: `${userId}m`, k: "md", p: { text: userText } }] }],
+		nodes: [{ id: userId, k: "card", p: { role: "omp.user", tone: "user" }, c: [{ id: `${userId}m`, k: "md", p: { text: userText } }] }],
 	});
 	const skill = text.match(SKILL_BLOCK);
 	if (!skill) return [userCard(id, text)];
@@ -315,8 +381,20 @@ function userItems(id: string, message: MessageLike, collapsed: CollapseOverride
 function bashItem(id: string, message: MessageLike, collapsed: CollapseOverrides): TranscriptItem {
 	const status: ToolStatus = message.cancelled ? "cancelled" : message.exitCode === 0 || message.exitCode === undefined ? "done" : "error";
 	const body: SemanticNode[] = message.output ? [{ id: `${id}o`, k: "ansi", p: { text: message.output } }] : [];
-	const props = { head: `$ ${message.command ?? ""}`, status, preview: { lines: TOOL_PREVIEW_LINES }, role: "pi.bash" };
-	return { id, component: PI_COMPONENTS.bash, nodes: [collapsibleCard(id, props, body, collapsed)] };
+	const p: Record<string, unknown> = {
+		role: "omp.tool.bash",
+		name: "bash",
+		title: "Bash",
+		target: message.command ?? "",
+		targetKind: "command",
+		lang: "bash",
+		status,
+		badges: [{ text: "you", title: "Run with ! in the composer" }],
+		frame: "card",
+	};
+	if (typeof message.exitCode === "number" && message.exitCode !== 0) p.exit = message.exitCode;
+	if (body.length > 0) Object.assign(p, { collapsible: true, collapsed: collapsed.get(id) ?? true, preview: { tail: TOOL_PREVIEW_LINES } });
+	return { id, component: PI_COMPONENTS.bash, nodes: [{ id, k: "tool", p, c: body }] };
 }
 
 function customMessageItem(id: string, message: MessageLike): TranscriptItem[] {
@@ -326,7 +404,8 @@ function customMessageItem(id: string, message: MessageLike): TranscriptItem[] {
 }
 
 function summaryItem(id: string, component: PiComponentName, head: string, summary: string, collapsed: CollapseOverrides): TranscriptItem {
-	return { id, component, nodes: [collapsibleCard(id, { head, role: "pi.summary" }, [{ id: `${id}m`, k: "md", p: { text: summary } }], collapsed)] };
+	const role = component === PI_COMPONENTS.compaction ? "omp.compaction" : "pi.summary";
+	return { id, component, nodes: [collapsibleCard(id, { head, role }, [{ id: `${id}m`, k: "md", p: { text: summary } }], collapsed)] };
 }
 
 /** A message to transcript items, without its tool calls, which `buildTranscriptItems` adds. */
