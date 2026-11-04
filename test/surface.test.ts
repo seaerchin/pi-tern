@@ -9,7 +9,7 @@ import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { NativeHandle, SemanticSurface } from "../native/native.d.mts";
 import { editorNode, findEditor, VIM_STATUS, type PiEditor } from "../lib/surface/composer.ts";
-import { createDock } from "../lib/surface/dock.ts";
+import { containerRows, createDock, WORKING_TEXT } from "../lib/surface/dock.ts";
 import type { TuiComponent } from "../lib/surface/host.ts";
 import { registerNativeSurface } from "../lib/surface/index.ts";
 
@@ -30,25 +30,60 @@ test("the editor node carries the caret as an offset and the Vim mode label", ()
 	assert.equal(editorNode(fakeEditor("", { line: 0, col: 0 }, { mode: "insert" })).p?.mode, undefined, "Insert has no label");
 });
 
-test("the dock is rows above, the composer, then rows below, like the prototype", () => {
+test("the dock is one rows node per pi container, in pi's dock order around the composer", () => {
 	const editor = fakeEditor("hi", { line: 0, col: 2 });
 	const tui = fakeTui(box(editor));
 	assert.equal(findEditor(tui), editor);
-	const dock = createDock({} as ExtensionAPI, { tui: () => tui, invalidate() {} });
+	const dock = createDock(fakePi().pi, { tui: () => tui, invalidate() {} });
 	const nodes = dock.describe(80, [editorNode(editor)]);
 	assert.deepEqual(
 		nodes.map((node) => [node.id, node.k]),
-		[["kt", "rows"], ["ke", "editor"], ["kb", "rows"]],
+		[["ks", "rows"], ["kwa", "rows"], ["ke", "editor"], ["kf", "rows"]],
+		"the empty pending and below-widget containers get no node",
 	);
-	assert.deepEqual(nodes[0].p?.lines, ["Working...", "widget above"]);
-	assert.deepEqual(nodes[2].p?.lines, ["~/work", "model"]);
+	assert.deepEqual(nodes[0].p?.lines, ["Working..."]);
+	assert.deepEqual(nodes[1].p?.lines, ["widget above"]);
+	assert.deepEqual(nodes[3].p?.lines, ["~/work", "model"]);
+});
+
+test("a container's blank edges are dropped, and an all-blank container shows nothing", () => {
+	assert.deepEqual(containerRows(rows("", "\x1b[2m  \x1b[0m", "a", "", "b", " "), 80), ["a", "", "b"]);
+	assert.deepEqual(containerRows(rows("   ", ""), 80), [], "pi's idle status is two blank rows");
+	assert.deepEqual(containerRows(undefined, 80), []);
+});
+
+test("while the agent runs, a shimmer stands in for the indicator pi draws in the composer border", () => {
+	const editor = fakeEditor("", { line: 0, col: 0 });
+	const tui = box(rows("transcript"), rows("queued: next"), rows("", ""), rows(), box(editor), rows(), rows("~/work"));
+	const { pi, handlers } = fakePi();
+	let invalidated = 0;
+	const dock = createDock(pi, { tui: () => tui, invalidate: () => (invalidated += 1) });
+	const ids = () => dock.describe(80, [editorNode(editor)]).map((node) => node.id);
+	assert.deepEqual(ids(), ["kp", "ke", "kf"]);
+	handlers.get("agent_start")?.({}, {});
+	handlers.get("turn_start")?.({}, {});
+	assert.equal(invalidated, 1, "only a change of state repaints");
+	const nodes = dock.describe(80, [editorNode(editor)]);
+	assert.deepEqual(nodes[1], { id: "kw", k: "shimmer", p: { text: WORKING_TEXT } }, "after pending, where pi's status container sits");
+	handlers.get("agent_end")?.({}, {});
+	assert.equal(invalidated, 2);
+	assert.deepEqual(ids(), ["kp", "ke", "kf"]);
+});
+
+test("when pi draws its loader in the status container, those rows show and no shimmer is added", () => {
+	const editor = fakeEditor("", { line: 0, col: 0 });
+	const { pi, handlers } = fakePi();
+	const dock = createDock(pi, { tui: () => fakeTui(box(editor)), invalidate() {} });
+	handlers.get("agent_start")?.({}, {});
+	const ids = dock.describe(80, [editorNode(editor)]).map((node) => node.id);
+	assert.deepEqual(ids, ["ks", "kwa", "ke", "kf"]);
 });
 
 test("while a dialog holds the editor slot, the slot shows as rows", () => {
 	const tui = fakeTui(box(rows("Pick one", "> a", "  b")));
 	assert.equal(findEditor(tui), null);
-	const nodes = createDock({} as ExtensionAPI, { tui: () => tui, invalidate() {} }).describe(80, []);
-	assert.deepEqual(nodes[1], { id: "kx", k: "rows", p: { cols: 80, lines: ["Pick one", "> a", "  b"] } });
+	const nodes = createDock(fakePi().pi, { tui: () => tui, invalidate() {} }).describe(80, []);
+	assert.deepEqual(nodes[2], { id: "kx", k: "rows", p: { cols: 80, lines: ["Pick one", "> a", "  b"] } });
 });
 
 /** A pi whose handlers and widgets the test can drive. */
@@ -118,9 +153,9 @@ test("inside the native surface it attaches once pi's TUI arrives through the wi
 		assert.deepEqual(regions.layer, []);
 		assert.deepEqual(
 			regions.dock.map((node) => node.id),
-			["kt", "ke", "kb"],
+			["ks", "kwa", "ke", "kf"],
 		);
-		assert.equal(regions.dock[1].p?.mode, "NORMAL");
+		assert.equal(regions.dock[2].p?.mode, "NORMAL");
 		assert.ok(attached[0].editor?.(), "the live editor is handed to the sink");
 	});
 });
