@@ -7,3 +7,7 @@
 - **Tern `toast` nodes.** Rejected: toasts vanish, so errors can't be found later, and a toast from a program has not been seen to display.
 - **Intercept Pi's `showWarning` and `showError`.** Rejected: it patches private method names and misses notices that bypass them, such as the package update notice.
 - **Drop notices.** Rejected: errors such as "Compaction failed" would be invisible.
+
+## Extended: built-in dialogs
+
+Built-in dialogs (`select`, `confirm`, `input`, `editor`) replace the composer in Pi's editor slot, and no supported API exposes their state. The surface reads the dialog component there by shape (for the selector: `baseTitle`, `options`, `selectedIndex`), mirrors it as a native overlay, and answers it by sending keys through the component's public `handleInput()`. If the shape doesn't match, the dialog shows as rows. Decided in [issue 15](https://github.com/seaerchin/pi-tern/issues/15).
