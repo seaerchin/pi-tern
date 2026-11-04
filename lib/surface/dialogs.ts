@@ -13,7 +13,7 @@ import { piSlot, type SemanticNode, type SurfaceHost, type TernEvent, type TuiCo
 export interface Dialogs {
 	/** The children of `layer`. Empty while no dialog is open. */
 	describe(cols: number): SemanticNode[];
-	/** The node that should hold Tern's keyboard focus, or null while no dialog is open. */
+	/** The field or list of the open dialog, which should hold Tern's keyboard focus. Null while none is open. */
 	focus(): string | null;
 	/** True when the event was for a dialog node, open or closed. Dialogs see events before the other areas. */
 	onEvent(event: TernEvent): boolean;
@@ -178,10 +178,14 @@ export function dialogNode(dialog: Dialog, n: number): SemanticNode {
 	return { id: ids.overlay, k: "overlay", p: { anchor: "center", size: "md", modal: true, head }, c: children };
 }
 
-/** The node Tern should focus: the text field, or the overlay when the dialog has none. */
+/**
+ * The node Tern should focus: the text field or the list. A confirm has neither, and a button never
+ * takes the focus, so its overlay takes it.
+ */
 export function dialogFocus(dialog: Dialog, n: number): string {
 	const ids = dialogIds(n);
-	return dialog.kind === "input" || dialog.kind === "editor" ? ids.field : ids.overlay;
+	if (dialog.kind === "input" || dialog.kind === "editor") return ids.field;
+	return dialog.kind === "select" ? ids.list : ids.overlay;
 }
 
 /** Move the selector to `target` and press Enter, as a user at the keyboard would. */

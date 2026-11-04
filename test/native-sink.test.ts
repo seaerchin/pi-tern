@@ -289,6 +289,16 @@ test("the sink sends a focus op only when the surface's focus target changes", (
 		sink.invalidate();
 		sink.flush();
 		assert.deepEqual(focusOps().slice(-1), [["focus", "ke"]], "the composer gets the focus back");
+
+		surface.regions = { main: [], dock: [], layer: [], focus: null };
+		sink.invalidate();
+		sink.flush();
+		assert.equal(focusOps().length, 3, "null sends nothing");
+
+		surface.regions = { main: [], dock: [editor], layer: [], focus: "ke" };
+		sink.handleInput(tspEvent({ ev: "error", sf: "test1", msg: "unknown id dock" }));
+		sink.flush();
+		assert.deepEqual(focusOps().slice(3), [["focus", "ke"]], "a region rebuild sends the focus again");
 		sink.close();
 	} finally {
 		cap.restore();

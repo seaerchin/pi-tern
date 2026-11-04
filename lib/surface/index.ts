@@ -42,7 +42,7 @@ export function registerNativeSurface(pi: ExtensionAPI): void {
 				main: transcript.describe(cols),
 				dock: dock.describe(cols, composerNodes, layer.length > 0),
 				layer,
-				focus: dialogs.focus() ?? composerNodes.find((node) => node.k === "editor")?.id ?? null,
+				focus: dialogs.focus?.() ?? composer.focus(),
 			};
 		},
 		editor: () => composer.editor(),

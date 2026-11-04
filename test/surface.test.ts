@@ -148,6 +148,6 @@ test("an open dialog fills layer, empties the editor slot and takes the focus fr
 		const regions = attached[0].describe(80);
 		assert.deepEqual(regions.layer.map((node) => [node.id, node.k]), [["dlg1", "overlay"]]);
 		assert.deepEqual(regions.dock.map((node) => node.id), ["kt", "kb"]);
-		assert.equal(regions.focus, "dlg1");
+		assert.equal(regions.focus, "dlg1l");
 	});
 });

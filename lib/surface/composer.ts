@@ -14,6 +14,8 @@ export interface Composer {
 	editor(): unknown;
 	/** The composer's dock nodes, in order. Empty while a dialog holds the editor slot. */
 	describe(cols: number): SemanticNode[];
+	/** The composer's node, which holds Tern's keyboard focus while no dialog does. Null while a dialog holds the editor slot. */
+	focus(): string | null;
 	/** True when the event was for the composer and pi's editor has applied it. */
 	onEvent(event: TernEvent): boolean;
 }
@@ -73,6 +75,7 @@ export function createComposer(_pi: ExtensionAPI, host: SurfaceHost): Composer {
 			nodes.push(editorNode(editor));
 			return nodes;
 		},
+		focus: () => (findEditor(host.tui()) ? "ke" : null),
 		onEvent: () => false,
 	};
 }

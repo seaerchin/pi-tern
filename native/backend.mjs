@@ -173,8 +173,10 @@ export function createNativeSink({
 		if (layerAdded) diffChildren("layer", sentTrees.layer, next.layer, ops);
 		sentTrees = next;
 		const focus = typeof regions?.focus === "string" ? regions.focus : null;
-		if (focus !== null && focus !== sentFocus) ops.push(["focus", focus]);
-		sentFocus = focus;
+		if (focus !== null && focus !== sentFocus) {
+			ops.push(["focus", focus]);
+			sentFocus = focus;
+		}
 		if (ops.length === 0) return;
 		seq += 1;
 		send("f", { sf: surface, s: seq, ops });

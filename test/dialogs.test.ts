@@ -162,7 +162,7 @@ test("the area answers through handleInput, focuses the dialog, and keeps each d
 	const first = fakeSelector("Pick", ["a", "b"]);
 	tui = fakeTui(first);
 	assert.equal(dialogs.describe(80)[0]?.id, "dlg1");
-	assert.equal(dialogs.focus(), "dlg1");
+	assert.equal(dialogs.focus(), "dlg1l", "the list holds the focus");
 	assert.equal(dialogs.onEvent({ ev: "select", id: "dlg1l", item: "dlg1i1" }), true);
 	assert.deepEqual(first.keys, [KEYS.down, KEYS.enter]);
 	assert.deepEqual(first.answers, ["b"]);
@@ -171,6 +171,9 @@ test("the area answers through handleInput, focuses the dialog, and keeps each d
 	tui = fakeTui(second);
 	assert.equal(dialogs.describe(80)[0]?.id, "dlg2", "a new dialog gets a new overlay");
 	assert.equal(dialogs.focus(), "dlg2f", "the text field holds the focus");
+	tui = fakeTui(fakeSelector("Delete?\nSure", ["Yes", "No"]));
+	assert.equal(dialogs.focus(), "dlg3", "a confirm has no field or list, so its overlay takes the focus");
+	tui = fakeTui(second);
 	assert.equal(dialogs.onEvent({ ev: "action", id: "dlg2c", act: "click" }), true);
 	assert.deepEqual(second.keys, [KEYS.escape]);
 
