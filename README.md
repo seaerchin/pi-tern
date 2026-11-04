@@ -77,44 +77,34 @@ Tern window, drive Tern's browser, run and capture panes, spawn fleet panes, and
 worktrees and PRs. That is what `/tern capabilities` reports per feature, with a reason when
 a feature is unavailable here.
 
-### Native surfaces need an **agent block**, not a shell block
+### Native surfaces run in an **agent block**, Pi's terminal interface in a shell block
 
-This is the one thing that will look broken if you get it wrong. Tern displays a TSP surface only in
-an **agent** block. Started in a **shell** block, pi-tern's frames are accepted and the surface
-materialises — but nothing is ever drawn, so the pane is **blank**, with no error anywhere to read.
+Point Tern's `agent_command` at the agent entry, `native/pi-tern-agent.mjs`. Tern runs
+`agent_command` only in agent blocks, so starting from that entry is how the launcher knows it may go
+native. A plain `pi-tern` in a shell block starts Pi's terminal interface.
 
 ```
-agent block  →  pi's transcript, composer and status render as Tern surfaces   ✔
-shell block  →  blank pane, no error, no clue                                  �’
+agent block, agent_command = native/pi-tern-agent.mjs  →  native surface
+shell block, pi-tern                                   →  Pi's terminal interface
 ```
-
-So either:
-
-1. **Open an agent block deliberately** — Tern's palette can create one beside the focused pane, or
-2. **Run `/tern agent-setup` inside pi.** It writes the two settings Tern documents for this, after
-   backing up the file, and reports exactly what changed:
-
-   | Key | Tern's description | Value |
-   | --- | --- | --- |
-   | `new_blocks` | "what new tabs and splits open" | `"Agent"` |
-   | `agent_command` | "what a block runs: the login shell, or this" (defaults to `omp`) | the pi-tern launcher |
-
-   Or set them by hand:
 
 ```jsonc
 // ~/Library/Application Support/Tern/settings.json
-{ "agent_command": "/Users/you/bin/pi-tern", "agent_placement": "split" }
+{ "agent_command": "/Users/you/pi-tern/native/pi-tern-agent.mjs" }
 ```
 
-And you can verify which kind you are in: `/tern doctor` reports the block kind, and pi-tern warns
-when it detects a shell block.
+Why an entry and not detection: on Tern 0.9.10 an agent block and a shell block get the same TSP
+`hello` and the same `TERN_*` variables. A shell block also draws a TSP surface on 0.9.10. A headless
+`tern serve` showed a probe's `text` node inside `sf-main` in a shell block, so the old "blank pane in
+a shell block" warning no longer holds. Pi keeps its terminal interface there by choice.
 
-> **Since 1.1.5 pi-tern detects this and recovers.** At session start it asks the `pi-bridge` plugin
-> what kind of block it is in; if it is not an agent block it hands the terminal back to pi's own
-> interface and tells you why, instead of leaving a blank pane. `PI_TERN_SKIP_KIND_CHECK=1` disables
-> the check. The kind is only exposed to a window plugin (`cx.session:panes()`), which is why the
-> check goes through the mailbox — `tern inspect --json` carries client kinds only, and
-> `tern whoami` carries just the identity chain.
+The plain launcher still asks the `pi-bridge` plugin for the block kind (`pane.kind`, through
+`cx.session:panes()`), by `TERN_PANE` or else `TERN_WINDOW_PANE`. That answer is unverified on 0.9.10:
+a headless `serve` never loads plugin window entries, so it was never seen to answer.
+`PI_TERN_NATIVE_BLOCK=force` and `PI_TERN_SKIP_KIND_CHECK=1` still skip the ask.
+
+`/tern agent-setup` predates the agent entry. It writes `"new_blocks": "Agent"` and an
+`agent_command` that is not the agent entry, so set `agent_command` by hand.
 
 ## Install
 
@@ -250,8 +240,8 @@ Three channels, kept separate:
   What remains is ours: the probe runs at session start, so a session that spans an update acts on the
   vocabulary it saw then. `/tern diagnose` reports the version it probed with; re-probe after attaching
   a new window.
-- **Native surfaces are agent-block-only** (see above). In a shell block the pane is blank and nothing
-  reports an error; 1.1.5 detects it and falls back, earlier versions did not.
+- **Native surfaces start only from the agent entry** (see above). A shell block on Tern 0.9.10 can
+  draw a surface, but Pi keeps its terminal interface there.
 - **Browser capture needs a rendered picture-in-picture.** Tern answers `capture: a 0×0 px image is out of range` while the PiP is not visible. `tern_chart` sidesteps this for SVG charts by rasterizing locally (`rsvg-convert` → `inkscape` → `qlmanage` → browser); for HTML/JS pages the browser is still the only renderer.
 - **Inline figures in the conversation are opt-in and unconfirmed.** `PI_TERN_INLINE_IMAGES=1` only *attempts* it; every rejection lands in `nativeState().lastError`. The mechanism is settled: there is **no `blob` frame op** — Tern answers `unknown op blob` for both `["blob",id,mime,data]` and `["blob",mime,data]`, and the blob store is a plugin-VM API (`blob(self, bytes, mime)`), not part of the frame dialect. pi-tern therefore sends the bytes **inline in the `image` node**, which Tern accepts. The accepted encoding is not the same as *seen rendering*: use the file block or `png: true` for anything that must work today. Full table in [`docs/TSP-ENCODINGS.md`](docs/TSP-ENCODINGS.md).
 - **The TSP handshake is a race and is retried.** Three attempts with backoff, because on identical
