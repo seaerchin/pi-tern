@@ -246,6 +246,22 @@ export function toolCard(tool: ToolCallState, context: BuildContext = NO_CONTEXT
 	return collapsibleCard(id, { head, status, preview: { lines: TOOL_PREVIEW_LINES } }, body, context.collapsed);
 }
 
+/**
+ * Text with a tone. Tern 0.9.10 accepts `tone` on `md` but draws no tone, so a `badge`, the one node
+ * seen to draw it, carries the tone.
+ */
+function tonedNode(id: string, label: string, tone: string, text: string, role?: string): SemanticNode {
+	return {
+		id,
+		k: "row",
+		p: { gap: "sm", align: "baseline", ...(role ? { role } : {}) },
+		c: [
+			{ id: `${id}b`, k: "badge", p: { text: label, tone } },
+			{ id: `${id}m`, k: "md", p: { text, tone } },
+		],
+	};
+}
+
 function assistantNodes(id: string, message: MessageLike, streaming: boolean, collapsed: CollapseOverrides): SemanticNode[] {
 	const blocks = Array.isArray(message.content) ? message.content : [];
 	const lastText = blocks.map((block) => block?.type).lastIndexOf("text");
@@ -259,10 +275,12 @@ function assistantNodes(id: string, message: MessageLike, streaming: boolean, co
 			children.push(collapsibleCard(blockId, { head: "Thinking", status: streaming ? "running" : undefined }, text, collapsed));
 		}
 	});
-	if (message.stopReason === "aborted") children.push({ id: `${id}err`, k: "md", p: { text: "Operation aborted", tone: "warning" } });
-	if (message.stopReason === "error") {
-		children.push({ id: `${id}err`, k: "md", p: { text: `Error: ${message.errorMessage || "Error"}`, tone: "error" } });
+	if (message.stopReason === "aborted") {
+		// pi shows a custom reason in place of its generic one, as `AssistantMessageComponent` does.
+		const reason = message.errorMessage && message.errorMessage !== "Request was aborted" ? message.errorMessage : "Operation aborted";
+		children.push(tonedNode(`${id}err`, "Aborted", "warning", reason));
 	}
+	if (message.stopReason === "error") children.push(tonedNode(`${id}err`, "Error", "error", message.errorMessage || "Error"));
 	return children.length > 0 ? [{ id, k: "col", p: { role: "pi.assistant" }, c: children }] : [];
 }
 
@@ -469,23 +487,12 @@ const NOTICE_TONES: [prefix: string, tone: string, label: string][] = [
 	["Warning: ", "warning", "Warning"],
 ];
 
-/**
- * A notice as `md`. Tern 0.9.10 accepts `tone` on `md` but draws no tone, so a toned notice also
- * gets a `badge`, the one node seen to draw it.
- */
+/** A notice as `md`, or as toned text when pi prefixed it as an error or a warning. */
 function noticeNode(id: string, text: string): SemanticNode {
 	const toned = NOTICE_TONES.find(([prefix]) => text.startsWith(prefix));
 	if (!toned) return { id, k: "md", p: { text, role: "pi.notice" } };
 	const [prefix, tone, label] = toned;
-	return {
-		id,
-		k: "row",
-		p: { gap: "sm", align: "baseline", role: "pi.notice" },
-		c: [
-			{ id: `${id}b`, k: "badge", p: { text: label, tone } },
-			{ id: `${id}m`, k: "md", p: { text: text.slice(prefix.length), tone } },
-		],
-	};
+	return tonedNode(id, label, tone, text.slice(prefix.length), "pi.notice");
 }
 
 /** pi's own rendering of a custom message with no renderer: a `Box` of label, spacer and Markdown. */

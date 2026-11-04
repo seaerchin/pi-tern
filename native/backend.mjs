@@ -77,6 +77,8 @@ export function createNativeSink({
 	const blobIds = new Map();
 	const apcLimit = Math.max(1024, Number(hello?.apc) || 65536);
 	let semanticSurface = null;
+	/** The width semantic rows render at. Tern reports a new one with a `resize` event. */
+	let semanticCols = cols;
 	/** The node trees last sent per region, which the next repaint is diffed against. */
 	let sentTrees = { main: [], dock: [], layer: [] };
 	let layerAdded = false;
@@ -149,7 +151,7 @@ export function createNativeSink({
 		try {
 			sink.attachEditor(semanticSurface.editor?.());
 			dirty = false;
-			regions = semanticSurface.describe(cols);
+			regions = semanticSurface.describe(semanticCols);
 		} catch (error) {
 			record("surface-error", String(error?.stack ?? error));
 			detachSurface(`describe failed: ${String(error?.message ?? error)}`);
@@ -248,6 +250,17 @@ export function createNativeSink({
 		if (!event || typeof event !== "object") return;
 		if (event.sf && surface && event.sf !== surface) return;
 		try {
+			if (event.ev === "resize") {
+				// Only semantic rows follow the width. The row copy's screen grid stays at the hello's width.
+				const next = Math.floor(Number(event.cols));
+				if (!(next > 0) || next === semanticCols) return;
+				semanticCols = next;
+				if (semanticActive()) {
+					dirty = true;
+					schedule();
+				}
+				return;
+			}
 			if (semanticActive() && event.ev !== "error") {
 				let consumed = false;
 				try {

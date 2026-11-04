@@ -58,10 +58,11 @@ export interface SemanticRegions {
  * The sink calls it on every repaint and diffs the result against what it sent last.
  */
 export interface SemanticSurface {
+	/** `cols` is the hello's width until Tern sends a `resize`, then the width it reports. */
 	describe(cols: number): SemanticRegions;
 	/** The live composer, so Tern's `edit`, `undo` and `send` events reach pi's editor. */
 	editor?(): unknown;
-	/** A Tern event other than `error`. True consumes it, so the sink's own handling is skipped. */
+	/** A Tern event other than `error` and `resize`. True consumes it, so the sink's own handling is skipped. */
 	onEvent?(event: Record<string, unknown>): boolean;
 }
 
