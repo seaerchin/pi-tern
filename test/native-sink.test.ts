@@ -73,7 +73,7 @@ test("the sink opens one inline surface and adds region roots under the surface 
 		const body = open.body as { id?: string; mode?: string; listen?: boolean };
 		assert.equal(body.id, "test1");
 		assert.equal(body.mode, "inline");
-		assert.equal(body.listen, undefined, "Tern sends no events, edit included, to a surface opened with listen:false");
+		assert.equal(body.listen, true, "semantic mode listens, or Tern sends no clicks");
 		const adds = ops(cap.frames).filter((op) => op[0] === "add");
 		assert.ok(
 			adds.some((op) => op[1] === "main" && op[2] === "test1"),
@@ -264,7 +264,7 @@ test("semantic mode replaces the row copy with the surface's trees, then sends o
 	}
 });
 
-test("semantic focus is sent when it moves and after a rebuild, never for null", () => {
+test("the sink sends a focus op only when the surface's focus target changes", () => {
 	const cap = capture();
 	try {
 		const sink = createNativeSink({ hello: HELLO, surfaceId: "test1" });
@@ -274,26 +274,31 @@ test("semantic focus is sent when it moves and after a rebuild, never for null",
 		sink.flush();
 		const focusOps = () => ops(cap.frames).filter((op) => op[0] === "focus");
 		assert.deepEqual(focusOps(), [["focus", "ke"]]);
-		const first = ops(cap.frames);
-		assert.ok(
-			first.findIndex((op) => op[0] === "add" && op[1] === "ke") < first.findIndex((op) => op[0] === "focus"),
-			"focus follows the node's add",
-		);
 
-		surface.regions.dock = [{ id: "ke", k: "editor", p: { text: "x" } }];
+		surface.regions = { main: [], dock: [], layer: [{ id: "dlg1", k: "overlay", p: { modal: true } }], focus: "dlg1" };
 		sink.invalidate();
 		sink.flush();
-		assert.equal(focusOps().length, 1, "unchanged focus is not sent again");
+		const opened = ops(cap.frames).slice(-1)[0];
+		assert.deepEqual(opened, ["focus", "dlg1"], "focus follows the overlay's add in the same frame");
 
-		surface.regions.focus = null;
 		sink.invalidate();
 		sink.flush();
-		assert.equal(focusOps().length, 1, "null sends nothing");
+		assert.equal(focusOps().length, 2, "an unchanged target sends nothing");
 
-		surface.regions.focus = "ke";
-		sink.handleInput(tspEvent({ ev: "error", sf: "test1", msg: "unknown id x" }));
+		surface.regions = { main: [], dock: [editor], layer: [], focus: "ke" };
+		sink.invalidate();
 		sink.flush();
-		assert.deepEqual(focusOps(), [["focus", "ke"], ["focus", "ke"]], "a rebuild sends focus again");
+		assert.deepEqual(focusOps().slice(-1), [["focus", "ke"]], "the composer gets the focus back");
+
+		surface.regions = { main: [], dock: [], layer: [], focus: null };
+		sink.invalidate();
+		sink.flush();
+		assert.equal(focusOps().length, 3, "null sends nothing");
+
+		surface.regions = { main: [], dock: [editor], layer: [], focus: "ke" };
+		sink.handleInput(tspEvent({ ev: "error", sf: "test1", msg: "unknown id dock" }));
+		sink.flush();
+		assert.deepEqual(focusOps().slice(3), [["focus", "ke"]], "a region rebuild sends the focus again");
 		sink.close();
 	} finally {
 		cap.restore();
@@ -310,6 +315,8 @@ test("PI_TERN_SEMANTIC=0 keeps the row copy and refuses a surface", () => {
 		assert.equal(sink.attachSurface(fakeSurface({ main: [], dock: [], layer: [] })), false);
 		sink.feed("row text\r\n");
 		sink.flush();
+		const open = cap.frames.find((frame) => frame.verb === "o")?.body as { listen?: boolean } | undefined;
+		assert.equal(open?.listen, false, "the row copy keeps listen:false");
 		const main = ops(cap.frames).find((op) => op[0] === "add" && op[1] === "main");
 		assert.equal(((nodeOf(main ?? ["add"])?.c ?? []) as FrameNode[])[0]?.k, "rows");
 		sink.close();
