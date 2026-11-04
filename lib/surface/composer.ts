@@ -1,8 +1,8 @@
 /**
  * Composer area: the live editor in pi's editor slot as an `editor` node.
  *
- * The node carries the text, the caret, `sendable`, a placeholder and the Vim `mode` from
- * `pi-vim-editor`'s published status. An open autocomplete list is an `overlay` in `layer`,
+ * The node carries the text, the caret, `sendable`, a placeholder, and the Vim `mode` and visual
+ * selection from `pi-vim-editor`'s published status. An open autocomplete list is an `overlay` in `layer`,
  * anchored to the caret. Tern's `edit`, `undo` and `send` events go through pi's editor API. Two
  * things that API lacks, placing the caret and reading the autocomplete list, go through
  * `editorInternals` only. The editor node asks for Tern's focus, because Tern sends `edit` and
@@ -31,10 +31,29 @@ export const VIM_STATUS = Symbol.for("pi-vim-editor");
 export const EDITOR_ID = "ke";
 export const AUTOCOMPLETE_ID = "ka";
 
-/** `pi-vim-editor`'s published Vim status (capability version 1). */
+/** `pi-vim-editor`'s published Vim status. `selection` comes from capability version 2. */
 export interface VimStatus {
 	mode?: string;
 	pending?: string;
+	selection?: VimSelection;
+}
+
+/** A Visual selection as `pi-vim-editor` publishes it. Offsets are UTF-16 offsets into `getText()`. */
+export interface VimSelection {
+	kind: "char" | "line" | "block";
+	/** `char`: one end of the selected range. Else the anchor's position. */
+	anchor: number;
+	/** `char`: the other end. Else the cursor's position. */
+	head: number;
+	/** `block` only: the selected range of each line. */
+	spans?: { from: number; to: number }[];
+}
+
+/** A styled range on an `editor` node. */
+export interface EditorDecoration {
+	from: number;
+	to: number;
+	s: string;
 }
 
 /** Insert has no label: Tern edits natively only while the `editor` node carries no `mode`. */
@@ -124,15 +143,45 @@ export function caretPosition(text: string, offset: number): { line: number; col
 	return { line, col: remaining };
 }
 
+/** The `decor` style for a block selection. Tern draws `mark` with an accent background, as a selection. */
+export const SELECTION_DECOR = "mark";
+
 /**
- * Hook for the Vim visual selection, filled by #18.
+ * The Vim visual selection as `editor` props, as decided in #7.
  *
- * Decided in #7: the `pi-vim-editor` fork adds `selection` (`kind`, `anchor`, `head`, block
- * `spans`) to its status. `char` maps to the node's `anchor`, `line` to `anchor` stretched to the
- * line edges, and `block` to `decor` ranges. Until the fork publishes it, nothing is selected.
+ * Tern selects from `anchor` to the caret, so `char` and `line` move the caret to the selection's
+ * moving end. Pi's own caret sits on the last selected character, one short of that end. `line`
+ * stretches to the line edges. Tern has one selection per field, so each line of a `block` is a
+ * `decor` range.
  */
-export function selectionProps(_vim: VimStatus | undefined, _text: string): { anchor?: number; decor?: unknown[] } {
-	return {};
+export function selectionProps(
+	vim: VimStatus | undefined,
+	text: string,
+): { anchor?: number; cursor?: number; decor?: EditorDecoration[] } {
+	const selection = vim?.selection;
+	const inText = (offset: unknown): offset is number =>
+		Number.isInteger(offset) && (offset as number) >= 0 && (offset as number) <= text.length;
+	if (!selection || !inText(selection.anchor) || !inText(selection.head)) return {};
+	const { anchor, head } = selection;
+	switch (selection.kind) {
+		case "char":
+			return { anchor, cursor: head };
+		case "line": {
+			const first = Math.min(anchor, head);
+			const start = first === 0 ? 0 : text.lastIndexOf("\n", first - 1) + 1;
+			const newline = text.indexOf("\n", Math.max(anchor, head));
+			const end = newline === -1 ? text.length : newline;
+			return head >= anchor ? { anchor: start, cursor: end } : { anchor: end, cursor: start };
+		}
+		case "block": {
+			const decor = (selection.spans ?? [])
+				.filter((span) => inText(span?.from) && inText(span.to) && span.from < span.to)
+				.map(({ from, to }) => ({ from, to, s: SELECTION_DECOR }));
+			return decor.length > 0 ? { decor } : {};
+		}
+		default:
+			return {};
+	}
 }
 
 export function editorNode(editor: PiEditor): SemanticNode {

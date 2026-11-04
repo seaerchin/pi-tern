@@ -2,6 +2,8 @@
 # Starts an isolated headless Tern, opens an agent block running the native
 # launcher, and prints the scratch dir. Parallel runs need distinct RC_LAST files.
 #   render-check.sh start [extra pi args...]   -> prints W, also in $RC_LAST (default /tmp/pi-tern-rc.last)
+# PI_CODING_AGENT_DIR, if set, runs Pi with that agent dir, so a check can load other packages
+# than ~/.pi/agent/settings.json lists.
 # The agent block runs native/pi-tern-agent.mjs, as Tern's agent_command would, so no force variable.
 # $W/shell.sh runs the plain launcher. Type it into the shell block to check Pi's terminal interface there.
 # Don't call start inside $(...): serve keeps the pipe open.
@@ -31,6 +33,8 @@ start)
 		echo '#!/bin/sh'
 		echo "export PI_TERN_BRIDGE_DIR=$W/bridge PI_TERN_TSP_RECORD=$W/tsp.jsonl PI_TERN_TREE_LOG=$W/tree.log PI_TERN_GAP_LOG=$W/gap.log"
 		[ -n "${PI_TERN_SEMANTIC:-}" ] && echo "export PI_TERN_SEMANTIC=$PI_TERN_SEMANTIC"
+		# Agent blocks don't inherit serve's environment, so another agent dir has to be passed here.
+		[ -n "${PI_CODING_AGENT_DIR:-}" ] && echo "export PI_CODING_AGENT_DIR=$PI_CODING_AGENT_DIR"
 		printf 'exec node %s/native/pi-tern-agent.mjs' "$ROOT"
 		for a in "$@"; do printf " '%s'" "$a"; done
 		echo " 2>>$W/launcher.err"
