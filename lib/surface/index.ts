@@ -35,11 +35,16 @@ export function registerNativeSurface(pi: ExtensionAPI): void {
 	const dialogs = createDialogs(pi, host);
 
 	const surface: SemanticSurface = {
-		describe: (cols) => ({
-			main: transcript.describe(cols),
-			dock: dock.describe(cols, composer.describe(cols)),
-			layer: dialogs.describe(cols),
-		}),
+		describe(cols) {
+			const layer = dialogs.describe(cols);
+			const composerNodes = composer.describe(cols);
+			return {
+				main: transcript.describe(cols),
+				dock: dock.describe(cols, composerNodes, layer.length > 0),
+				layer,
+				focus: dialogs.focus() ?? composerNodes.find((node) => node.k === "editor")?.id ?? null,
+			};
+		},
 		editor: () => composer.editor(),
 		// Dialogs first: an open modal dialog owns the keys.
 		onEvent: (event) => dialogs.onEvent(event) || composer.onEvent(event) || transcript.onEvent(event) || dock.onEvent(event),

@@ -73,7 +73,7 @@ test("the sink opens one inline surface and adds region roots under the surface 
 		const body = open.body as { id?: string; mode?: string; listen?: boolean };
 		assert.equal(body.id, "test1");
 		assert.equal(body.mode, "inline");
-		assert.equal(body.listen, false);
+		assert.equal(body.listen, true, "semantic mode listens, or Tern sends no clicks");
 		const adds = ops(cap.frames).filter((op) => op[0] === "add");
 		assert.ok(
 			adds.some((op) => op[1] === "main" && op[2] === "test1"),
@@ -264,6 +264,37 @@ test("semantic mode replaces the row copy with the surface's trees, then sends o
 	}
 });
 
+test("the sink sends a focus op only when the surface's focus target changes", () => {
+	const cap = capture();
+	try {
+		const sink = createNativeSink({ hello: HELLO, surfaceId: "test1" });
+		const editor = { id: "ke", k: "editor", p: { text: "" } };
+		const surface = fakeSurface({ main: [], dock: [editor], layer: [], focus: "ke" });
+		sink.attachSurface(surface);
+		sink.flush();
+		const focusOps = () => ops(cap.frames).filter((op) => op[0] === "focus");
+		assert.deepEqual(focusOps(), [["focus", "ke"]]);
+
+		surface.regions = { main: [], dock: [], layer: [{ id: "dlg1", k: "overlay", p: { modal: true } }], focus: "dlg1" };
+		sink.invalidate();
+		sink.flush();
+		const opened = ops(cap.frames).slice(-1)[0];
+		assert.deepEqual(opened, ["focus", "dlg1"], "focus follows the overlay's add in the same frame");
+
+		sink.invalidate();
+		sink.flush();
+		assert.equal(focusOps().length, 2, "an unchanged target sends nothing");
+
+		surface.regions = { main: [], dock: [editor], layer: [], focus: "ke" };
+		sink.invalidate();
+		sink.flush();
+		assert.deepEqual(focusOps().slice(-1), [["focus", "ke"]], "the composer gets the focus back");
+		sink.close();
+	} finally {
+		cap.restore();
+	}
+});
+
 test("PI_TERN_SEMANTIC=0 keeps the row copy and refuses a surface", () => {
 	const cap = capture();
 	const previous = process.env.PI_TERN_SEMANTIC;
@@ -274,6 +305,8 @@ test("PI_TERN_SEMANTIC=0 keeps the row copy and refuses a surface", () => {
 		assert.equal(sink.attachSurface(fakeSurface({ main: [], dock: [], layer: [] })), false);
 		sink.feed("row text\r\n");
 		sink.flush();
+		const open = cap.frames.find((frame) => frame.verb === "o")?.body as { listen?: boolean } | undefined;
+		assert.equal(open?.listen, false, "the row copy keeps listen:false");
 		const main = ops(cap.frames).find((op) => op[0] === "add" && op[1] === "main");
 		assert.equal(((nodeOf(main ?? ["add"])?.c ?? []) as FrameNode[])[0]?.k, "rows");
 		sink.close();

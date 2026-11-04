@@ -31,6 +31,8 @@ Semantic mode is the default. The pi-tern extension loads `lib/surface/`, which 
 surface to the sink at session start. The sink then diffs each region's node tree into `add`, `set`
 and `del` ops (`native/tree-diff.mjs`). `PI_TERN_SEMANTIC=0` keeps the row copy. Without the fork's
 extension, or after Tern rejects the surface four times, the sink also stays on the row copy.
+Semantic mode opens the surface with `listen: true`, because Tern 0.9.10 sends no events to a
+surface opened with `listen: false`.
 
 The loader patches only the launched release's packages. Extensions such as pi-subagents import a
 second pi-tui copy, and patching it opened a second surface.

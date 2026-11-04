@@ -11,3 +11,9 @@
 ## Extended: built-in dialogs
 
 Built-in dialogs (`select`, `confirm`, `input`, `editor`) replace the composer in Pi's editor slot, and no supported API exposes their state. The surface reads the dialog component there by shape (for the selector: `baseTitle`, `options`, `selectedIndex`), mirrors it as a native overlay, and answers it by sending keys through the component's public `handleInput()`. If the shape doesn't match, the dialog shows as rows. Decided in [issue 15](https://github.com/seaerchin/pi-tern/issues/15).
+
+Built in [issue 16](https://github.com/seaerchin/pi-tern/issues/16):
+
+- The `input` and `editor` fields carry the `mode` label `PTY`. Tern then edits nothing natively and sends every key to Pi, so Pi's value stays the only truth. Tern's selection editing is lost in dialog fields. Replaying Tern's `edit` events as keys was rejected because a key could apply twice.
+- The `input` and `editor` overlays have Submit and Cancel buttons, so the mouse can answer them. They send Enter and Escape. Enter submits in Pi's editor dialog too.
+- Tern 0.9.10 sends no event when a modal overlay closes. The overlay has no close control, a click on its backdrop sends nothing, and Escape reaches Pi as a key. So Escape cancels through Pi itself.
