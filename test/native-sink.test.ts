@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createNativeSink } from "../native/backend.mjs";
 import { nodeOf } from "../native/tsp.mjs";
-import type { FrameNode, FrameOp } from "../native/native.d.mts";
+import type { FrameNode, FrameOp, SemanticRegions, SemanticSurface } from "../native/native.d.mts";
 
 /** One decoded frame as captured off the pty. */
 type CapturedFrame = { verb: string; body?: unknown };
@@ -208,6 +208,124 @@ test("suspend and resume are single frame ops", () => {
 		const all = ops(cap.frames);
 		assert.ok(all.some((op) => op[0] === "suspend"));
 		assert.ok(all.some((op) => op[0] === "resume"));
+	} finally {
+		cap.restore();
+	}
+});
+
+/** A semantic surface whose regions the test sets directly. */
+function fakeSurface(regions: SemanticRegions) {
+	const events: Array<Record<string, unknown>> = [];
+	const surface: SemanticSurface & { regions: SemanticRegions; events: typeof events } = {
+		regions,
+		events,
+		describe: () => structuredClone(surface.regions),
+		onEvent: (event) => {
+			events.push(event);
+			return event.ev === "select";
+		},
+	};
+	return surface;
+}
+
+const tspEvent = (body: Record<string, unknown>) => `\x1b_tsp;e;${JSON.stringify(body)}\x1b\\`;
+
+test("semantic mode replaces the row copy with the surface's trees, then sends only changes", () => {
+	const cap = capture();
+	try {
+		const sink = createNativeSink({ hello: HELLO, surfaceId: "test1" });
+		sink.feed("transcript line\r\n");
+		sink.flush();
+		const editor = { id: "ke", k: "editor", p: { text: "", cursor: 0, mode: "NORMAL" } };
+		const surface = fakeSurface({ main: [{ id: "u1", k: "md", p: { text: "hi" } }], dock: [editor], layer: [] });
+		assert.equal(sink.attachSurface(surface), true);
+		const before = ops(cap.frames).length;
+		sink.flush();
+		const switched = ops(cap.frames).slice(before);
+		assert.deepEqual(switched[0], ["del", "main"], "the row copy is removed once");
+		assert.deepEqual(switched.slice(1, 3), [
+			["add", "main", "test1", null, { id: "main", k: "col" }],
+			["add", "dock", "test1", null, { id: "dock", k: "col" }],
+		]);
+		assert.deepEqual(switched.slice(3), [
+			["add", "u1", "main", null, { id: "u1", k: "md", p: { text: "hi" } }],
+			["add", "ke", "dock", null, editor],
+		]);
+		assert.equal(sink.nativeState().surfaceAttached, true);
+
+		surface.regions.dock = [{ id: "ke", k: "editor", p: { text: "x", cursor: 1 } }];
+		sink.invalidate();
+		const next = ops(cap.frames).length;
+		sink.flush();
+		assert.deepEqual(ops(cap.frames).slice(next), [["set", "ke", { text: "x", cursor: 1, mode: null }]]);
+		sink.close();
+	} finally {
+		cap.restore();
+	}
+});
+
+test("PI_TERN_SEMANTIC=0 keeps the row copy and refuses a surface", () => {
+	const cap = capture();
+	const previous = process.env.PI_TERN_SEMANTIC;
+	try {
+		process.env.PI_TERN_SEMANTIC = "0";
+		const sink = createNativeSink({ hello: HELLO, surfaceId: "test1" });
+		assert.equal(sink.nativeState().semantic, false);
+		assert.equal(sink.attachSurface(fakeSurface({ main: [], dock: [], layer: [] })), false);
+		sink.feed("row text\r\n");
+		sink.flush();
+		const main = ops(cap.frames).find((op) => op[0] === "add" && op[1] === "main");
+		assert.equal(((nodeOf(main ?? ["add"])?.c ?? []) as FrameNode[])[0]?.k, "rows");
+		sink.close();
+	} finally {
+		if (previous === undefined) delete process.env.PI_TERN_SEMANTIC;
+		else process.env.PI_TERN_SEMANTIC = previous;
+		cap.restore();
+	}
+});
+
+test("a throwing surface is dropped for the row copy, and the reason is kept", () => {
+	const cap = capture();
+	try {
+		const sink = createNativeSink({ hello: HELLO, surfaceId: "test1" });
+		sink.attachSurface({
+			describe: () => {
+				throw new Error("boom");
+			},
+		});
+		sink.flush();
+		assert.equal(sink.nativeState().surfaceAttached, false);
+		assert.match(String(sink.nativeState().semanticFallback), /boom/);
+		sink.feed("still here\r\n");
+		sink.flush();
+		const main = ops(cap.frames).find((op) => op[0] === "add" && op[1] === "main");
+		assert.equal(((nodeOf(main ?? ["add"])?.c ?? []) as FrameNode[])[0]?.k, "rows");
+		sink.close();
+	} finally {
+		cap.restore();
+	}
+});
+
+test("Tern events reach the surface first, and repeated rejections fall back to rows", () => {
+	const cap = capture();
+	try {
+		const sink = createNativeSink({ hello: HELLO, surfaceId: "test1" });
+		const surface = fakeSurface({ main: [], dock: [], layer: [] });
+		sink.attachSurface(surface);
+		sink.flush();
+		assert.equal(sink.handleInput(`a${tspEvent({ ev: "select", sf: "test1", id: "l", item: "i" })}b`), "ab");
+		assert.deepEqual(surface.events.map((event) => event.ev), ["select"]);
+		for (let i = 0; i < 3; i += 1) {
+			sink.handleInput(tspEvent({ ev: "error", sf: "test1", msg: "unknown kind nope" }));
+			sink.flush();
+			assert.equal(sink.nativeState().surfaceAttached, true, `rebuild ${i + 1} keeps the surface`);
+		}
+		sink.handleInput(tspEvent({ ev: "error", sf: "test1", msg: "unknown kind nope" }));
+		assert.equal(sink.nativeState().surfaceAttached, false);
+		assert.match(String(sink.nativeState().semanticFallback), /rejected/);
+		assert.equal(surface.events.length, 1, "error events are the sink's own");
+		sink.flush();
+		sink.close();
 	} finally {
 		cap.restore();
 	}
