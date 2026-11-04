@@ -5,6 +5,7 @@
  * `children` and `render()`.
  */
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { NativeHandle, SemanticSurface } from "../native/native.d.mts";
@@ -99,11 +100,13 @@ test("while the dialogs area shows the dialog as an overlay, the editor slot sta
 function fakePi() {
 	type Handler = (event: unknown, ctx: unknown) => void;
 	const handlers = new Map<string, Handler[]>();
-	const pi = { on: (name: string, handler: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), handler]) };
+	const bus = new EventEmitter();
+	const events = { emit: (channel: string, data: unknown) => bus.emit(channel, data), on: (channel: string, handler: (data: unknown) => void) => bus.on(channel, handler) };
+	const pi = { on: (name: string, handler: Handler) => handlers.set(name, [...(handlers.get(name) ?? []), handler]), events };
 	const emit = (name: string, event: unknown, ctx: unknown) => {
 		for (const handler of handlers.get(name) ?? []) handler(event, ctx);
 	};
-	return { pi: pi as unknown as ExtensionAPI, handlers, emit };
+	return { pi: pi as unknown as ExtensionAPI, handlers, emit, events };
 }
 
 function withHandle(handle: NativeHandle | undefined, run: () => void) {
@@ -197,5 +200,35 @@ test("an open dialog fills layer, empties the editor slot and takes the focus fr
 		assert.deepEqual(regions.layer.map((node) => [node.id, node.k]), [["dlg1", "overlay"]]);
 		assert.deepEqual(regions.dock.map((node) => node.id), ["ks", "kwa", "kf"]);
 		assert.equal(regions.focus, "dlg1l");
+	});
+});
+
+test("tool cards go through the describer registry: the built-in subagent describer, a local override over the bus, and a throwing one's fallback", () => {
+	const attached: SemanticSurface[] = [];
+	withHandle(fakeHandle(true, attached), () => {
+		const { pi, emit, events } = fakePi();
+		const diagnostics = registerNativeSurface(pi);
+		const branch = [
+			{ type: "message", id: "e1", message: { role: "assistant", timestamp: 1, content: [{ type: "toolCall", id: "s1", name: "subagent", arguments: { agent: "scout", task: "look" } }] } },
+			{ type: "message", id: "e2", message: { role: "toolResult", toolCallId: "s1", timestamp: 2, content: [{ type: "text", text: "found" }], details: { mode: "single", results: [{ index: 0, agent: "scout", task: "look", exitCode: 0, finalOutput: "found" }] } } },
+		];
+		const tui = fakeTui(box(fakeEditor("", { line: 0, col: 0 })));
+		emit("session_start", {}, { hasUI: true, sessionManager: { getBranch: () => branch }, ui: { setWidget: (_key: string, factory: (root: unknown) => unknown) => factory(tui) } });
+		const card = () => attached[0].describe(80).main.find((node) => node.id === "xts1");
+		assert.deepEqual(card()?.c?.map((node) => node.k), ["agent"], "the built-in describer");
+
+		events.emit("tern:describe", { kind: "tool", key: "subagent", source: "local", describe: () => ({ head: "mine", body: [{ id: "m", k: "md", p: { text: "local" } }] }) });
+		assert.deepEqual([card()?.p?.head, card()?.c?.[0].id], ["mine", "xts1-m"], "a local describer wins");
+
+		events.emit("tern:describe", {
+			kind: "tool",
+			key: "subagent",
+			source: "local",
+			describe: () => {
+				throw new Error("broken");
+			},
+		});
+		assert.deepEqual(card()?.c?.map((node) => [node.id, node.k]), [["xts1-o", "ansi"]], "the generic card");
+		assert.equal(diagnostics?.describers().problems[0]?.first, "describe threw: broken");
 	});
 });

@@ -24,6 +24,8 @@ const EDITOR_METHODS = ["render", "handleInput"];
 const TSP_PREFIX = "\x1b_tsp;";
 /** Tern rejections the semantic surface survives by rebuilding before it falls back to the row copy. */
 const SEMANTIC_RESETS = 3;
+/** Rejections name a recent frame. Older frames are dropped to bound memory. */
+const SENT_OPS_KEPT = 32;
 
 export function createNativeSink({
 	hello,
@@ -84,6 +86,8 @@ export function createNativeSink({
 	let layerAdded = false;
 	/** The node Tern was last told to focus, so a `focus` op goes out only when the target changes. */
 	let sentFocus = null;
+	/** Recent frames' ops by `s`, so a rejection's `s` and `op` name the node Tern refused. */
+	const sentOps = new Map();
 	let semanticResets = 0;
 	let semanticFallback = null;
 	/** Delete every region root before the next frame, so a mode switch or a rejection starts clean. */
@@ -185,6 +189,8 @@ export function createNativeSink({
 		}
 		if (ops.length === 0) return;
 		seq += 1;
+		sentOps.set(seq, ops);
+		if (sentOps.size > SENT_OPS_KEPT) sentOps.delete(sentOps.keys().next().value);
 		send("f", { sf: surface, s: seq, ops });
 	};
 
@@ -306,6 +312,14 @@ export function createNativeSink({
 					const msg = String(event.msg ?? "");
 					lastError = { at: Date.now(), msg };
 					if (semanticActive()) {
+						const rejectedId = sentOps.get(event.s)?.[event.op]?.[1];
+						if (typeof rejectedId === "string") {
+							try {
+								semanticSurface.rejected?.(rejectedId, msg);
+							} catch (error) {
+								record("surface-error", String(error?.stack ?? error));
+							}
+						}
 						// The sent trees no longer match Tern's document, so diffing on would compound the error.
 						semanticResets += 1;
 						if (semanticResets > SEMANTIC_RESETS) detachSurface(`Tern rejected the semantic surface: ${msg}`);

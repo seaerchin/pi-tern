@@ -910,7 +910,7 @@ async function captureWithRetry(
 	throw new Error(`capture failed: ${message}`);
 }
 export default function piTern(pi: ExtensionAPI) {
-	registerNativeSurface(pi);
+	const nativeSurface = registerNativeSurface(pi);
 	pi.on("session_start", async (event, ctx) => {
 		// `session_start` is pi's only session-lifecycle event, and it carries the reason:
 		// "startup" | "reload" | "new" | "resume" | "fork". A resume or a fork is exactly when this
@@ -2548,6 +2548,8 @@ export default function piTern(pi: ExtensionAPI) {
 									control: loadState().control ?? null,
 									state: loadState(),
 									mirror: mirrorEnabled,
+									// Describers fail per item and quietly fall back, so this is where their errors surface.
+									describers: nativeSurface?.describers() ?? null,
 								},
 								null,
 								2,

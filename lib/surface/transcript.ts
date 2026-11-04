@@ -102,12 +102,13 @@ export interface ToolDescription {
 }
 
 /**
- * The seam for the describer registry (#17). `tool` returns undefined for a tool with no describer,
- * and the transcript then draws its default card. Output checks, timing and precedence belong to the
- * registry, so a returned description is used as it is.
+ * The seam for the describer registry (`describers.ts`). `tool` returns undefined for a tool with no
+ * usable describer, and the transcript then draws its default card. Output checks, timing and
+ * precedence belong to the registry, so a returned description is used as it is. `cardId` prefixes
+ * the body ids, so the registry can tell which card a Tern event or rejection is about.
  */
 export interface TranscriptDescribers {
-	tool?(toolName: string, input: ToolDescribeInput): ToolDescription | undefined;
+	tool?(toolName: string, input: ToolDescribeInput, cardId: string): ToolDescription | undefined;
 }
 
 /**
@@ -231,15 +232,19 @@ function collapsibleCard(id: string, props: Record<string, unknown>, body: Seman
 export function toolCard(tool: ToolCallState, context: BuildContext = NO_CONTEXT): SemanticNode {
 	const id = `xt${safeId(tool.toolCallId)}`;
 	const isCollapsed = context.collapsed.get(id) ?? true;
-	const described = context.describers.tool?.(tool.toolName, {
-		toolCallId: tool.toolCallId,
-		args: tool.args,
-		argsComplete: tool.argsComplete,
-		status: tool.status,
-		partial: tool.partial,
-		result: tool.result,
-		expanded: !isCollapsed,
-	});
+	const described = context.describers.tool?.(
+		tool.toolName,
+		{
+			toolCallId: tool.toolCallId,
+			args: tool.args,
+			argsComplete: tool.argsComplete,
+			status: tool.status,
+			partial: tool.partial,
+			result: tool.result,
+			expanded: !isCollapsed,
+		},
+		id,
+	);
 	const head = described?.head ?? toolHead(tool);
 	const status = described?.status ?? tool.status;
 	const body = described ? prefixIds(id, described.body) : defaultToolBody(id, tool, context);

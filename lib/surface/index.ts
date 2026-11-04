@@ -8,6 +8,8 @@
  *   composer.ts    `dock`   the `editor` node, and its autocomplete overlay in `layer` (#11)
  *   dock.ts        `dock`   pi's other dock containers around the composer (#12)
  *   dialogs.ts     `layer`  built-in dialogs as overlays (#16)
+ *   describers.ts           the describer registry on pi's event bus (#17, ADR 0003)
+ *   subagents.ts            the built-in describer for pi-subagents' `subagent` tool (#17)
  *
  * The sink in `native/backend.mjs` owns the surface, the frames and the tree diff. This module only
  * assembles the areas into one `SemanticSurface` and attaches it.
@@ -16,9 +18,11 @@ import { appendFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SemanticSurface } from "../../native/native.d.mts";
 import { createComposer } from "./composer.ts";
+import { connectDescribers, createDescriberRegistry, helloKinds, type DescriberReport } from "./describers.ts";
 import { createDialogs } from "./dialogs.ts";
 import { createDock } from "./dock.ts";
 import { nativeHandle, type SurfaceHost, type TuiComponent } from "./host.ts";
+import { describeSubagent, SUBAGENT_TOOL } from "./subagents.ts";
 import { createTranscript } from "./transcript.ts";
 
 /** Areas log to the sink's frame record, so a render check shows them next to the frames. */
@@ -35,9 +39,14 @@ function recordSurfaceLog(message: string): void {
 /** An empty widget whose factory is the supported way to receive pi's TUI root. */
 const TUI_WIDGET = "pi-tern-surface";
 
-export function registerNativeSurface(pi: ExtensionAPI): void {
+/** What the full surface offers the rest of the extension, such as `/tern diagnose`. */
+export interface NativeSurface {
+	describers(): DescriberReport;
+}
+
+export function registerNativeSurface(pi: ExtensionAPI): NativeSurface | undefined {
 	const handle = nativeHandle();
-	if (!handle?.state().semantic) return;
+	if (!handle?.state().semantic) return undefined;
 
 	let tui: TuiComponent | null = null;
 	const host: SurfaceHost = {
@@ -46,7 +55,11 @@ export function registerNativeSurface(pi: ExtensionAPI): void {
 		log: recordSurfaceLog,
 		blob: (data, mime) => (typeof handle.blob === "function" ? handle.blob(data, mime) : undefined),
 	};
-	const transcript = createTranscript(pi, host);
+	const kinds = helloKinds();
+	const describers = createDescriberRegistry({ kinds, log: recordSurfaceLog });
+	describers.register({ kind: "tool", key: SUBAGENT_TOOL, source: "builtin", describe: describeSubagent });
+	connectDescribers(pi, host, describers, kinds);
+	const transcript = createTranscript(pi, host, describers);
 	const composer = createComposer(pi, host);
 	const dock = createDock(pi, host);
 	const dialogs = createDialogs(pi, host);
@@ -65,7 +78,9 @@ export function registerNativeSurface(pi: ExtensionAPI): void {
 		},
 		editor: () => composer.editor(),
 		// Dialogs first: an open modal dialog owns the keys.
-		onEvent: (event) => dialogs.onEvent(event) || composer.onEvent(event) || transcript.onEvent(event) || dock.onEvent(event),
+		onEvent: (event) =>
+			dialogs.onEvent(event) || composer.onEvent(event) || describers.onEvent(event) || transcript.onEvent(event) || dock.onEvent(event),
+		rejected: (nodeId, message) => describers.rejected(nodeId, message),
 	};
 
 	pi.on("session_start", (_event, ctx) => {
@@ -80,4 +95,5 @@ export function registerNativeSurface(pi: ExtensionAPI): void {
 			{ placement: "belowEditor" },
 		);
 	});
+	return { describers: () => describers.report() };
 }
