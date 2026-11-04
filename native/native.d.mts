@@ -281,6 +281,21 @@ export declare function initialize(data?: { scope?: string }): void;
 export declare function transformSource(url: string, source: string, releaseScope?: string): string | null;
 export declare function load(url: string, context: unknown, next: (url: string, context: unknown) => Promise<{ format?: string; source?: unknown }>): Promise<{ format?: string; source?: unknown }>;
 
+// native/block-kind.mjs: how the launcher learns it runs in an agent block.
+export declare function markAgentEntry(): void;
+export declare function startedFromAgentEntry(): boolean;
+export declare function bridgePaneId(env: Record<string, string | undefined>): string | undefined;
+export interface BlockKindResolution {
+	/** `agent`, another pane kind from pi-bridge, or undefined when nothing answered. */
+	kind: string | undefined;
+	via: "agent-command" | "forced" | "pi-bridge";
+}
+export declare function resolveBlockKind(options: {
+	agentEntry: boolean;
+	env: Record<string, string | undefined>;
+	ask: (paneId: string | undefined) => Promise<string | undefined>;
+}): Promise<BlockKindResolution>;
+
 export const TSP_VERSION: number;
 export const TSP_PREFIX: string;
 export const ST: string;

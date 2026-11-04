@@ -11,6 +11,10 @@ node native/install.mjs     # ~/bin/pi-tern -> native/pi-tern.mjs
 pi-tern                     # inside Tern: native rows surface; anywhere else: stock pi
 ```
 
+Set Tern's `agent_command` to `native/pi-tern-agent.mjs`. Tern runs that command only in agent
+blocks, so the launcher goes native there without asking pi-bridge. A plain `pi-tern` in a shell block
+starts Pi's terminal interface.
+
 Inside Tern the launcher:
 
 1. probes with the TSP `hello` + DA1 sentinel (raw stdin, 700 ms; skipped in tmux/zellij);

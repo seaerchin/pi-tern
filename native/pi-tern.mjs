@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveBlockKind, startedFromAgentEntry } from "./block-kind.mjs";
 import { clearProbeFailure, probe, recordProbeFailure } from "./handshake.mjs";
 
 /**
@@ -207,8 +208,11 @@ function nonAgentBlockNotice(kind) {
 	} catch {
 		/* best effort: a missing flag means one extra line, never a failure */
 	}
-	return `\npi-tern: Tern *${kind}* block — starting pi's own interface (native surfaces need an agent block). One command fixes it: run /tern agent-setup inside pi, or set "new_blocks": "Agent" and "agent_command": "${process.argv[1] ?? "pi-tern"}" in Tern's settings.json.\n`;
+	return `\npi-tern: Tern *${kind}* block — starting pi's own interface (native surfaces need an agent block). One command fixes it: run /tern agent-setup inside pi, or set "new_blocks": "Agent" and "agent_command": "${agentEntryPath}" in Tern's settings.json.\n`;
 }
+
+/** Only this entry tells the launcher it runs in an agent block, so the advice names it. */
+const agentEntryPath = fileURLToPath(new URL("./pi-tern-agent.mjs", import.meta.url));
 
 /** The scratch state file the extension also reads, so both halves agree on what happened. */
 const stateFile = path.join(path.dirname(mailboxDir()), "state.json");
@@ -251,9 +255,7 @@ if (!release || !existsSync(release.entry) || !existsSync(hook)) {
 		// else — a terminal block, an unresponsive mailbox, an unknown kind — starts pi's own
 		// interface, which works everywhere. Asking afterwards (1.1.5) meant the answer arrived after
 		// pi had already gone native, so the pane sat blank for as long as the plugin took to reply.
-		const forced = process.env.PI_TERN_NATIVE_BLOCK;
-		const skipCheck = process.env.PI_TERN_SKIP_KIND_CHECK === "1" || forced === "force";
-		const kind = skipCheck ? "agent" : await askBlockKind(process.env.TERN_PANE);
+		const { kind, via } = await resolveBlockKind({ agentEntry: startedFromAgentEntry(), env: process.env, ask: askBlockKind });
 		if (kind !== "agent") {
 			process.stderr.write(nonAgentBlockNotice(kind ?? "terminal (pi-bridge did not answer)"));
 			runStock(process.argv.slice(2));
@@ -264,7 +266,7 @@ if (!release || !existsSync(release.entry) || !existsSync(hook)) {
 					...process.env,
 					PI_TERN_NATIVE: "1",
 					PI_TERN_HELLO: JSON.stringify(hello),
-					PI_TERN_BLOCK_KIND: skipCheck ? "forced" : "agent",
+					PI_TERN_BLOCK_KIND: via === "forced" ? "forced" : "agent",
 					...(process.env.TERN_PANE ? { PI_TERN_SURFACE_ID: `pi-${process.env.TERN_PANE}` } : {}),
 				},
 			});
