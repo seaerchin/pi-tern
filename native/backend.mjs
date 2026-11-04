@@ -15,6 +15,35 @@ import { splitComposer, splitDock } from "./layout.mjs";
 import { encodeMessage } from "./tsp.mjs";
 
 const EDITOR_METHODS = ["render", "handleInput"];
+
+// PROTOTYPE (issue #5, throwaway): diff semantic node trees into add/set/del ops.
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function diffChildren(parentId, prev, next, ops) {
+	const prevById = new Map(prev.map((n) => [n.id, n]));
+	const nextIds = new Set(next.map((n) => n.id));
+	for (const n of prev) if (!nextIds.has(n.id)) ops.push(["del", n.id]);
+	for (let i = 0; i < next.length; i += 1) {
+		const n = next[i];
+		let before = null;
+		for (let j = i + 1; j < next.length; j += 1) {
+			if (prevById.has(next[j].id)) {
+				before = next[j].id;
+				break;
+			}
+		}
+		const old = prevById.get(n.id);
+		if (!old) ops.push(["add", n.id, parentId, before, n]);
+		else if (!same(old, n)) {
+			if (old.k !== n.k) {
+				ops.push(["del", old.id]);
+				ops.push(["add", n.id, parentId, before, n]);
+			} else {
+				if (!same(old.p ?? {}, n.p ?? {})) ops.push(["set", n.id, n.p ?? {}]);
+				diffChildren(n.id, old.c ?? [], n.c ?? [], ops);
+			}
+		}
+	}
+}
 const TSP_PREFIX = "\x1b_tsp;";
 
 export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.session", adopt = false, surfaceId } = {}) {
@@ -57,6 +86,64 @@ export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.s
 	let transcriptNodes = [];
 	const asideNodes = new Set();
 	const markdownNodes = new Map();
+	// PROTOTYPE (issue #5): last semantic trees sent, per region.
+	let semMain = [];
+	let semDock = [];
+	let semReset = false;
+	let semResets = 0;
+	const semanticOn = () => process.env.PI_TERN_SEMANTIC === "1" && globalThis.__piTernSemantic?.ready;
+	const semanticFlush = () => {
+		const sem = globalThis.__piTernSemantic;
+		dirty = false;
+		let main;
+		let dock;
+		try {
+			main = sem.describeMain();
+			dock = sem.describeDock(cols);
+		} catch (error) {
+			record("proto-error", String(error?.stack ?? error));
+			return;
+		}
+		const fingerprint = JSON.stringify([main, dock]);
+		if (fingerprint === lastLines && !semReset) return;
+		lastLines = fingerprint;
+		open();
+		const ops = [];
+		if (semReset) {
+			if (mainAdded) ops.push(["del", "main"]);
+			if (dockAdded) ops.push(["del", "dock"]);
+			mainAdded = dockAdded = rowsAdded = editorAdded = statusAdded = false;
+			semMain = [];
+			semDock = [];
+			semReset = false;
+		}
+		if (!mainAdded) {
+			ops.push(["add", "main", surface, null, { id: "main", k: "col" }]);
+			mainAdded = true;
+			rowsAdded = false;
+		}
+		if (rowsAdded) {
+			ops.push(["del", "m"]);
+			rowsAdded = false;
+		}
+		if (!dockAdded) {
+			ops.push(["add", "dock", surface, null, { id: "dock", k: "col" }]);
+			dockAdded = true;
+			editorAdded = statusAdded = false;
+		}
+		if (editorAdded) ops.push(["del", "e"]);
+		if (statusAdded) ops.push(["del", "d"]);
+		editorAdded = statusAdded = false;
+		diffChildren("main", semMain, main, ops);
+		diffChildren("dock", semDock, dock, ops);
+		semMain = main;
+		semDock = dock;
+		if (ops.length > 0) {
+			seq += 1;
+			send("f", { sf: surface, s: seq, ops });
+		}
+		sem.measureGap?.();
+	};
 
 	const send = (verb, body, params) => {
 		process.stdout.write(encodeMessage(verb, body, params));
@@ -184,6 +271,14 @@ export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.s
 					// The document can be rebuilt after Tern restarts or drops a region.
 					const msg = String(event.msg ?? "");
 					lastError = { at: Date.now(), msg };
+					if (semanticOn()) {
+						semResets += 1;
+						if (semResets > 3) return;
+						semReset = true;
+						dirty = true;
+						schedule();
+						return;
+					}
 					if (msg.includes("unknown id main") || msg.includes("unknown id m")) {
 						mainAdded = false;
 						rowsAdded = false;
@@ -477,8 +572,14 @@ export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.s
 				}, 100);
 			}
 		},
+		/** PROTOTYPE (issue #5): ask for a repaint when session state changed without a TUI write. */
+		invalidate() {
+			dirty = true;
+			schedule();
+		},
 		flush() {
 			if (!dirty && seq > 0) return;
+			if (semanticOn()) return semanticFlush();
 			if (!editor) {
 				captureEditorClass(globalThis.__piTernEditorClass);
 				captureEditorClass(globalThis.__piTernEditorBase);
