@@ -49,6 +49,11 @@ export interface SemanticRegions {
 	dock: SemanticNode[];
 	/** Overlays such as dialogs. */
 	layer: SemanticNode[];
+	/**
+	 * The node that should hold Tern's keyboard focus. The sink sends a `focus` op when it moves and
+	 * after a region rebuild. Null or absent sends nothing.
+	 */
+	focus?: string | null;
 }
 
 /**

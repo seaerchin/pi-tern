@@ -73,7 +73,7 @@ test("the sink opens one inline surface and adds region roots under the surface 
 		const body = open.body as { id?: string; mode?: string; listen?: boolean };
 		assert.equal(body.id, "test1");
 		assert.equal(body.mode, "inline");
-		assert.equal(body.listen, false);
+		assert.equal(body.listen, undefined, "Tern sends no events, edit included, to a surface opened with listen:false");
 		const adds = ops(cap.frames).filter((op) => op[0] === "add");
 		assert.ok(
 			adds.some((op) => op[1] === "main" && op[2] === "test1"),
@@ -258,6 +258,42 @@ test("semantic mode replaces the row copy with the surface's trees, then sends o
 		const next = ops(cap.frames).length;
 		sink.flush();
 		assert.deepEqual(ops(cap.frames).slice(next), [["set", "ke", { text: "x", cursor: 1, mode: null }]]);
+		sink.close();
+	} finally {
+		cap.restore();
+	}
+});
+
+test("semantic focus is sent when it moves and after a rebuild, never for null", () => {
+	const cap = capture();
+	try {
+		const sink = createNativeSink({ hello: HELLO, surfaceId: "test1" });
+		const editor = { id: "ke", k: "editor", p: { text: "" } };
+		const surface = fakeSurface({ main: [], dock: [editor], layer: [], focus: "ke" });
+		sink.attachSurface(surface);
+		sink.flush();
+		const focusOps = () => ops(cap.frames).filter((op) => op[0] === "focus");
+		assert.deepEqual(focusOps(), [["focus", "ke"]]);
+		const first = ops(cap.frames);
+		assert.ok(
+			first.findIndex((op) => op[0] === "add" && op[1] === "ke") < first.findIndex((op) => op[0] === "focus"),
+			"focus follows the node's add",
+		);
+
+		surface.regions.dock = [{ id: "ke", k: "editor", p: { text: "x" } }];
+		sink.invalidate();
+		sink.flush();
+		assert.equal(focusOps().length, 1, "unchanged focus is not sent again");
+
+		surface.regions.focus = null;
+		sink.invalidate();
+		sink.flush();
+		assert.equal(focusOps().length, 1, "null sends nothing");
+
+		surface.regions.focus = "ke";
+		sink.handleInput(tspEvent({ ev: "error", sf: "test1", msg: "unknown id x" }));
+		sink.flush();
+		assert.deepEqual(focusOps(), [["focus", "ke"], ["focus", "ke"]], "a rebuild sends focus again");
 		sink.close();
 	} finally {
 		cap.restore();
