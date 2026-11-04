@@ -17,10 +17,12 @@ import {
 	editorNode,
 	keySequence,
 	resolveEdit,
+	SELECTION_DECOR,
 	selectionProps,
 	undoKeySequence,
 	VIM_STATUS,
 	type PiEditor,
+	type VimStatus,
 } from "../lib/surface/composer.ts";
 import type { TuiComponent } from "../lib/surface/host.ts";
 
@@ -28,7 +30,7 @@ const rows = (...lines: string[]): TuiComponent => ({ render: () => lines });
 const box = (...children: TuiComponent[]): TuiComponent => ({ render: (cols) => children.flatMap((child) => child.render(cols)), children });
 
 /** A pi editor that keeps its text as lines, like pi-tui's, and records what the composer called. */
-function fakeEditor(text = "", vim?: { mode: string; pending?: string }) {
+function fakeEditor(text = "", vim?: VimStatus) {
 	const calls: string[] = [];
 	const editor = {
 		state: { lines: text.split("\n"), cursorLine: 0, cursorCol: 0 },
@@ -93,14 +95,54 @@ test("the editor node maps each Vim mode to a label, and Insert to none", () => 
 	assert.equal(editorNode(fakeEditor("x").editor as PiEditor).p?.mode, undefined, "no pi-vim-editor, no label");
 });
 
-test("the editor node is sendable unless pi disabled submit, and has no selection until #18", () => {
+test("the editor node is sendable unless pi disabled submit, and has no selection without one published", () => {
 	const { editor } = fakeEditor("hi");
 	assert.equal(editorNode(editor as PiEditor).p?.sendable, true);
 	editor.disableSubmit = true;
 	assert.equal(editorNode(editor as PiEditor).p?.sendable, false);
-	assert.deepEqual(selectionProps({ mode: "visual" }, "hi"), {});
+	assert.deepEqual(selectionProps({ mode: "visual" }, "hi"), {}, "capability version 1 has no selection");
 	const props = editorNode(fakeEditor("hi", { mode: "visual" }).editor as PiEditor).p ?? {};
 	assert.equal("anchor" in props || "decor" in props, false);
+});
+
+test("a char selection becomes the node's anchor, with the caret at its moving end", () => {
+	const visual = (anchor: number, head: number) => ({ mode: "visual", selection: { kind: "char" as const, anchor, head } });
+	assert.deepEqual(selectionProps(visual(0, 3), "hello"), { anchor: 0, cursor: 3 });
+	assert.deepEqual(selectionProps(visual(5, 1), "hello"), { anchor: 5, cursor: 1 }, "backward keeps its direction");
+	const { editor } = fakeEditor("hello", { mode: "visual" });
+	editor[VIM_STATUS] = { status: () => visual(1, 4) };
+	const props = editorNode(editor as PiEditor).p ?? {};
+	assert.deepEqual([props.anchor, props.cursor, props.mode], [1, 4, "VISUAL"]);
+});
+
+test("a line selection stretches the anchor and caret to the line edges", () => {
+	const text = "ab\ncd\nef";
+	const line = (anchor: number, head: number) => ({ mode: "visual-line", selection: { kind: "line" as const, anchor, head } });
+	assert.deepEqual(selectionProps(line(1, 4), text), { anchor: 0, cursor: 5 });
+	assert.deepEqual(selectionProps(line(7, 4), text), { anchor: 8, cursor: 3 }, "upward runs from the last line's end");
+	assert.deepEqual(selectionProps(line(0, 0), text), { anchor: 0, cursor: 2 });
+	assert.deepEqual(selectionProps(line(7, 7), text), { anchor: 6, cursor: 8 }, "the last line ends at the text's end");
+});
+
+test("a block selection becomes one mark decor per line, skipping empty spans", () => {
+	const text = "abcd\nx\nabcd";
+	const block = {
+		mode: "visual-block",
+		selection: { kind: "block" as const, anchor: 1, head: 9, spans: [{ from: 1, to: 3 }, { from: 6, to: 6 }, { from: 8, to: 10 }] },
+	};
+	assert.deepEqual(selectionProps(block, text), {
+		decor: [
+			{ from: 1, to: 3, s: SELECTION_DECOR },
+			{ from: 8, to: 10, s: SELECTION_DECOR },
+		],
+	});
+	assert.equal(SELECTION_DECOR, "mark");
+});
+
+test("a selection outside the text is ignored", () => {
+	assert.deepEqual(selectionProps({ selection: { kind: "char", anchor: 0, head: 9 } }, "hi"), {});
+	assert.deepEqual(selectionProps({ selection: { kind: "block", anchor: 0, head: 1, spans: [{ from: 0, to: 9 }] } }, "hi"), {});
+	assert.deepEqual(selectionProps({ selection: { kind: "char", anchor: -1, head: 1 } }, "hi"), {});
 });
 
 test("caret offsets and positions round-trip across lines", () => {
