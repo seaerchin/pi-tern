@@ -77,7 +77,7 @@ function composerOver(slot: TuiComponent) {
 	const warnings: string[] = [];
 	const handlers = new Map<string, (event: unknown, ctx: unknown) => void>();
 	const pi = { on: (name: string, handler: (event: unknown, ctx: unknown) => void) => handlers.set(name, handler) };
-	const composer = createComposer(pi as unknown as ExtensionAPI, { tui: () => fakeTui(slot), invalidate() {} });
+	const composer = createComposer(pi as unknown as ExtensionAPI, { tui: () => fakeTui(slot), invalidate() {}, log() {}, blob: () => undefined });
 	handlers.get("session_start")?.({}, { hasUI: true, ui: { notify: (message: string) => warnings.push(message) } });
 	return { composer, warnings };
 }

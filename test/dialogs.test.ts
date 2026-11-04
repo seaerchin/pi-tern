@@ -155,7 +155,7 @@ test("confirm buttons pick option 0 or 1, and Submit and Cancel are Enter and Es
 
 test("the area answers through handleInput, focuses the dialog, and keeps each dialog's own ids", () => {
 	let tui: TuiComponent | null = null;
-	const dialogs = createDialogs({} as ExtensionAPI, { tui: () => tui, invalidate() {} });
+	const dialogs = createDialogs({} as ExtensionAPI, { tui: () => tui, invalidate() {}, log() {}, blob: () => undefined });
 	assert.deepEqual(dialogs.describe(80), []);
 	assert.equal(dialogs.focus(), null);
 
