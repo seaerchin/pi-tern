@@ -11,3 +11,7 @@
 ## Extended: built-in dialogs
 
 Built-in dialogs (`select`, `confirm`, `input`, `editor`) replace the composer in Pi's editor slot, and no supported API exposes their state. The surface reads the dialog component there by shape (for the selector: `baseTitle`, `options`, `selectedIndex`), mirrors it as a native overlay, and answers it by sending keys through the component's public `handleInput()`. If the shape doesn't match, the dialog shows as rows. Decided in [issue 15](https://github.com/seaerchin/pi-tern/issues/15).
+
+## Extended: extension renderer rows
+
+Custom messages and custom entries drawn by an extension renderer show as rows from that renderer (issue 8). No supported API reaches a registered renderer, so its output exists only in Pi's `CustomMessageComponent` and `CustomEntryComponent`. The walk renders those components too, with the same `children`, class names and `render()`. Each component matches its saved item by order within its class, and only while the two counts agree. If they differ, as when an extension saves entries it never renders, that class shows its default and the walk logs it, so a renderer's rows never sit next to the wrong item. A custom message whose child has Pi's default shape (a `Box` of `Text`, `Spacer` and `Markdown`) has no renderer and shows as Markdown. Decided in [issue 10](https://github.com/seaerchin/pi-tern/issues/10).

@@ -330,3 +330,38 @@ test("Tern events reach the surface first, and repeated rejections fall back to 
 		cap.restore();
 	}
 });
+
+test("blob sends image bytes once with verb b, named by their sha256, in chunks over the apc limit", async () => {
+	const { createHash } = await import("node:crypto");
+	const written: string[] = [];
+	const original = process.stdout.write.bind(process.stdout);
+	process.stdout.write = ((chunk) => (written.push(String(chunk)), true)) as typeof process.stdout.write;
+	try {
+		const sink = createNativeSink({ hello: { ...HELLO, apc: 1024 }, surfaceId: "test1" });
+		const small = Buffer.from("tiny png").toString("base64");
+		const id = sink.blob(small, "image/png");
+		assert.equal(id, createHash("sha256").update("tiny png").digest("hex"));
+		const blobs = () => written.filter((text) => text.startsWith("\x1b_tsp;b;"));
+		assert.deepEqual(blobs(), [`\x1b_tsp;b;id=${id};mime=image/png;${small}\x1b\\`]);
+		assert.equal(sink.blob(small, "image/png"), id, "the same payload is not sent again");
+		assert.equal(blobs().length, 1);
+
+		const large = Buffer.alloc(2000, 7).toString("base64");
+		const largeId = sink.blob(large, "image/jpeg");
+		const chunks = blobs().slice(1);
+		assert.equal(chunks.length, 3);
+		assert.deepEqual(
+			chunks.map((text) => text.split(";").slice(1, -1)),
+			[
+				["b", `id=${largeId}`, "mime=image/jpeg", "c=b2", "m=1"],
+				["b", `id=${largeId}`, "mime=image/jpeg", "c=b2", "m=1"],
+				["b", `id=${largeId}`, "mime=image/jpeg", "c=b2"],
+			],
+		);
+		assert.equal(chunks.map((text) => text.slice(text.lastIndexOf(";") + 1, -2)).join(""), large);
+		assert.equal(sink.blob("", "image/png"), undefined);
+		sink.close();
+	} finally {
+		process.stdout.write = original;
+	}
+});
