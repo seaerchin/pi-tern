@@ -5,7 +5,7 @@
  * launcher in semantic mode. Each area is its own module, so the areas can change independently:
  *
  *   transcript.ts  `main`   messages, thinking and tool calls (#10)
- *   composer.ts    `dock`   the `editor` node (#11)
+ *   composer.ts    `dock`   the `editor` node, and its autocomplete overlay in `layer` (#11)
  *   dock.ts        `dock`   pi's other dock containers around the composer (#12)
  *   dialogs.ts     `layer`  built-in dialogs as overlays (#16)
  *
@@ -32,6 +32,9 @@ function recordSurfaceLog(message: string): void {
 	}
 }
 
+/** #16 gives dialogs a `focus()`, so an open modal dialog takes the keys ahead of the composer. */
+type FocusOwner = { focus?(): string | null };
+
 /** An empty widget whose factory is the supported way to receive pi's TUI root. */
 const TUI_WIDGET = "pi-tern-surface";
 
@@ -52,11 +55,17 @@ export function registerNativeSurface(pi: ExtensionAPI): void {
 	const dialogs = createDialogs(pi, host);
 
 	const surface: SemanticSurface = {
-		describe: (cols) => ({
-			main: transcript.describe(cols),
-			dock: dock.describe(cols, composer.describe(cols)),
-			layer: dialogs.describe(cols),
-		}),
+		describe(cols) {
+			const layer = dialogs.describe(cols);
+			const composerNodes = composer.describe(cols);
+			return {
+				main: transcript.describe(cols),
+				dock: dock.describe(cols, composerNodes),
+				// Dialogs last: a modal dialog sits above the autocomplete list.
+				layer: [...composer.overlays(cols), ...layer],
+				focus: (dialogs as FocusOwner).focus?.() ?? composer.focus(),
+			};
+		},
 		editor: () => composer.editor(),
 		// Dialogs first: an open modal dialog owns the keys.
 		onEvent: (event) => dialogs.onEvent(event) || composer.onEvent(event) || transcript.onEvent(event) || dock.onEvent(event),

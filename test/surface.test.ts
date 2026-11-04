@@ -133,6 +133,7 @@ test("inside the native surface it attaches once pi's TUI arrives through the wi
 			["kt", "ke", "kb"],
 		);
 		assert.equal(regions.dock[1].p?.mode, "NORMAL");
+		assert.equal(regions.focus, "ke", "the composer holds Tern's focus while no dialog does");
 		assert.ok(attached[0].editor?.(), "the live editor is handed to the sink");
 	});
 });

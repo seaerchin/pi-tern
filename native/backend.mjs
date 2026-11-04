@@ -10,7 +10,8 @@
  * (`lib/surface/`), each region is that surface's node tree, diffed into
  * `add`/`set`/`del` ops. `PI_TERN_SEMANTIC=0` keeps the row copy.
  *
- * `listen:false`, so no acks are needed.
+ * Semantic mode opens with `listen:true`: Tern 0.9.10 sends no events at all to a surface opened
+ * with `listen:false`, and the semantic surface needs clicks. Acks are ignored.
  */
 import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
@@ -79,6 +80,8 @@ export function createNativeSink({
 	/** The node trees last sent per region, which the next repaint is diffed against. */
 	let sentTrees = { main: [], dock: [], layer: [] };
 	let layerAdded = false;
+	/** The node Tern was last told to focus, so a `focus` op goes out only when the target changes. */
+	let sentFocus = null;
 	let semanticResets = 0;
 	let semanticFallback = null;
 	/** Delete every region root before the next frame, so a mode switch or a rejection starts clean. */
@@ -93,7 +96,7 @@ export function createNativeSink({
 		if (opened) return;
 		opened = true;
 		surface = surfaceId || `pi${Date.now().toString(36)}`;
-		send("o", { id: surface, mode: "inline", title, role, listen: false, ...(adopt ? { adopt: true } : {}) });
+		send("o", { id: surface, mode: "inline", title, role, listen: semantic, ...(adopt ? { adopt: true } : {}) });
 	};
 	/**
 	 * Make sure the transcript region exists before anything is added to it.
@@ -118,6 +121,7 @@ export function createNativeSink({
 		if (layerAdded) ops.push(["del", "layer"]);
 		mainAdded = rowsAdded = dockAdded = editorAdded = statusAdded = layerAdded = false;
 		sentTrees = { main: [], dock: [], layer: [] };
+		sentFocus = null;
 		figures = [];
 		markdownNodes.clear();
 		transcriptNodes = [];
@@ -172,6 +176,11 @@ export function createNativeSink({
 		diffChildren("dock", sentTrees.dock, next.dock, ops);
 		if (layerAdded) diffChildren("layer", sentTrees.layer, next.layer, ops);
 		sentTrees = next;
+		const focus = typeof regions?.focus === "string" ? regions.focus : null;
+		if (focus !== null && focus !== sentFocus) {
+			ops.push(["focus", focus]);
+			sentFocus = focus;
+		}
 		if (ops.length === 0) return;
 		seq += 1;
 		send("f", { sf: surface, s: seq, ops });
