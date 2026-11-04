@@ -1,12 +1,14 @@
 /**
  * Dock area (`dock`): the composer, framed by pi's pending, status, widget and footer containers.
  *
- * Each container is rendered by its own components as one `rows` node, in pi's dock order. pi draws
+ * Each container is rendered by its own components as one `rows` node, in pi's dock order. The
+ * built-in footer is the exception: it is a native `status` bar (`footer.ts`). pi draws
  * its working indicator in the composer's top border, which the `editor` node replaces, so the
  * working state shows as a `shimmer` node in the status container's place. While a dialog holds
  * the editor slot, the slot shows as rows, unless the dialogs area mirrors it as an overlay.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createFooter } from "./footer.ts";
 import { PI_SLOTS, piSlot, renderRows, type SemanticNode, type SurfaceHost, type TernEvent, type TuiComponent } from "./host.ts";
 
 export interface Dock {
@@ -57,6 +59,7 @@ export function createDock(pi: ExtensionAPI, host: SurfaceHost): Dock {
 	pi.on("agent_start", () => setWorking(true));
 	pi.on("turn_start", () => setWorking(true));
 	pi.on("agent_end", () => setWorking(false));
+	const footer = createFooter(pi, host);
 
 	return {
 		describe(cols, composer, dialogShown = false) {
@@ -76,7 +79,9 @@ export function createDock(pi: ExtensionAPI, host: SurfaceHost): Dock {
 			if (composer.length > 0) nodes.push(...composer);
 			else if (!dialogShown) nodes.push({ id: "kx", k: "rows", p: { cols, lines: renderRows(piSlot(tui, "editor"), cols) } });
 			pushRows("widgetsBelow");
-			pushRows("footer");
+			const nativeFooter = footer.describe(piSlot(tui, "footer"));
+			if (nativeFooter) nodes.push(...nativeFooter);
+			else pushRows("footer");
 			return nodes;
 		},
 		onEvent: () => false,

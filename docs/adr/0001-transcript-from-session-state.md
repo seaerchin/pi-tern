@@ -11,3 +11,12 @@ The full surface builds the transcript's semantic nodes from Pi's session events
 
 - Transcript items with no session event (startup notices, `!` shell output) need a separate decision.
 - Anything Pi draws inside the composer's border, such as the working spinner, needs its own node.
+
+## Extended: the footer
+
+Pi's built-in footer is a native `status` bar, not a row fallback. The rows showed Tern's fallback badge on every screen, and the footer's numbers are session data.
+
+- Cwd, session name, usage totals, context usage, model and thinking level come from the extension API.
+- Pi keeps the git branch, the extension statuses and the provider count only in its footer's data provider. The surface reads them from the built-in `FooterComponent` by shape.
+- A custom footer from `setFooter`, or a provider whose shape changed, stays rows and logs once.
+- Each item is its own `seg` with a drop priority, so Tern removes the least useful items first on a narrow screen. Context usage is kept longest.
