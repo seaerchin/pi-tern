@@ -305,6 +305,54 @@ test("the sink sends a focus op only when the surface's focus target changes", (
 	}
 });
 
+test("a Tern resize renders the semantic surface again at the new width", () => {
+	const cap = capture();
+	try {
+		const sink = createNativeSink({ hello: HELLO, surfaceId: "test1" });
+		const widths: number[] = [];
+		sink.attachSurface({
+			describe: (cols) => {
+				widths.push(cols);
+				return { main: [{ id: "r", k: "rows", p: { cols, lines: ["x".repeat(cols)] } }], dock: [], layer: [] };
+			},
+		});
+		sink.flush();
+		sink.handleInput(tspEvent({ ev: "resize", sf: "test1", cols: 120, cell: { w: 16, h: 33 }, visible: true }));
+		sink.flush();
+		assert.deepEqual(widths, [80, 120], "the hello's width first, then Tern's");
+		assert.deepEqual(ops(cap.frames).slice(-1), [["set", "r", { cols: 120, lines: ["x".repeat(120)] }]]);
+
+		const before = cap.frames.length;
+		sink.handleInput(tspEvent({ ev: "resize", sf: "test1", cols: 120 }));
+		sink.handleInput(tspEvent({ ev: "resize", sf: "test1", cols: 0 }));
+		sink.flush();
+		assert.equal(cap.frames.length, before, "the same width or a bad one sends nothing");
+		sink.close();
+	} finally {
+		cap.restore();
+	}
+});
+
+test("a resize before the surface attaches sets the width it first renders at", () => {
+	const cap = capture();
+	try {
+		const sink = createNativeSink({ hello: HELLO, surfaceId: "test1" });
+		sink.handleInput(tspEvent({ ev: "resize", cols: 64 }));
+		const widths: number[] = [];
+		sink.attachSurface({
+			describe: (cols) => {
+				widths.push(cols);
+				return { main: [], dock: [], layer: [] };
+			},
+		});
+		sink.flush();
+		assert.deepEqual(widths, [64]);
+		sink.close();
+	} finally {
+		cap.restore();
+	}
+});
+
 test("PI_TERN_SEMANTIC=0 keeps the row copy and refuses a surface", () => {
 	const cap = capture();
 	const previous = process.env.PI_TERN_SEMANTIC;

@@ -18,6 +18,7 @@ import {
 	type SessionEntryLike,
 	type TranscriptItem,
 } from "../lib/surface/transcript.ts";
+import type { FrameOp } from "../native/native.d.mts";
 import { diffChildren } from "../native/tree-diff.mjs";
 
 let entrySeq = 0;
@@ -92,7 +93,26 @@ test("a tool call without a result is pending, or failed when its reply was abor
 	assert.equal(nodeOf(aborted, "xtp2")?.p?.status, "error");
 	assert.deepEqual(nodeOf(aborted, "xtp2")?.c, [{ id: "xtp2-o", k: "ansi", p: { text: "Operation aborted" } }]);
 	const reply = nodeOf(aborted, "xassistant-2");
-	assert.deepEqual(reply?.c?.at(-1)?.p, { text: "Operation aborted", tone: "warning" });
+	assert.deepEqual(reply?.c?.at(-1), {
+		id: "xassistant-2err",
+		k: "row",
+		p: { gap: "sm", align: "baseline" },
+		c: [
+			{ id: "xassistant-2errb", k: "badge", p: { text: "Aborted", tone: "warning" } },
+			{ id: "xassistant-2errm", k: "md", p: { text: "Operation aborted", tone: "warning" } },
+		],
+	});
+});
+
+test("an aborted reply shows pi's own reason when it has one, and a failed reply its error", () => {
+	const marker = (message: Partial<MessageLike>) =>
+		buildTranscriptItems([entry({ role: "assistant", content: [{ type: "text", text: "a" }], timestamp: 3, ...message })])[0].nodes[0].c?.at(-1);
+	assert.equal(marker({ stopReason: "aborted", errorMessage: "Request was aborted" })?.c?.[1].p?.text, "Operation aborted");
+	assert.equal(marker({ stopReason: "aborted", errorMessage: "Stopped by the hook" })?.c?.[1].p?.text, "Stopped by the hook");
+	assert.deepEqual(
+		marker({ stopReason: "error", errorMessage: "overloaded" })?.c?.map((node) => node.p),
+		[{ text: "Error", tone: "error" }, { text: "overloaded", tone: "error" }],
+	);
 });
 
 test("! output is a card with the command as head and the output as ansi", () => {
@@ -318,6 +338,40 @@ test("the area shows a streaming reply from events until pi saves it", () => {
 	const saved = transcript.describe(80);
 	assert.deepEqual(saved.map((node) => node.id), ["xuser-1", "xassistant-2"]);
 	assert.deepEqual(saved[1].c?.[0].p, { text: "partial done", stream: false });
+});
+
+test("an interrupted streaming reply keeps its nodes, stops streaming and gains the aborted marker", () => {
+	const { pi, emit } = fakePi();
+	const branch: SessionEntryLike[] = [user("q", 1)];
+	const transcript = createTranscript(pi, fakeHost(component("Container", [], [])));
+	emit("session_start", {}, { sessionManager: { getBranch: () => branch } });
+	const message = { role: "assistant", content: [{ type: "text", text: "1. one\n2. tw" }], timestamp: 2 };
+	emit("message_start", { message });
+	emit("message_update", { message });
+	const streaming = transcript.describe(80);
+	const aborted = { ...message, stopReason: "aborted", errorMessage: "Request was aborted" };
+	emit("message_end", { message: aborted });
+	branch.push(entry(aborted));
+	const ops: FrameOp[] = [];
+	diffChildren("main", streaming, transcript.describe(80), ops);
+	assert.deepEqual(ops, [
+		["set", "xassistant-2b0", { stream: false }],
+		[
+			"add",
+			"xassistant-2err",
+			"xassistant-2",
+			null,
+			{
+				id: "xassistant-2err",
+				k: "row",
+				p: { gap: "sm", align: "baseline" },
+				c: [
+					{ id: "xassistant-2errb", k: "badge", p: { text: "Aborted", tone: "warning" } },
+					{ id: "xassistant-2errm", k: "md", p: { text: "Operation aborted", tone: "warning" } },
+				],
+			},
+		],
+	]);
 });
 
 test("a toggle on a transcript card is consumed and kept across repaints", () => {
