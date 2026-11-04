@@ -6,18 +6,32 @@
  * M3: once a pi-tui Editor instance is captured, publish the composer as a real
  * `editor` node (sendable), apply Tern's native edit/undo/send events through
  * pi's own editor API, and expose `suspend`/`resume` frame ops.
+ * Semantic mode: once the pi-tern extension attaches a semantic surface
+ * (`lib/surface/`), each region is that surface's node tree, diffed into
+ * `add`/`set`/`del` ops. `PI_TERN_SEMANTIC=0` keeps the row copy.
  *
  * `listen:false`, so no acks are needed.
  */
 import { appendFileSync } from "node:fs";
 import { Screen } from "./ansi.mjs";
 import { splitComposer, splitDock } from "./layout.mjs";
+import { diffChildren } from "./tree-diff.mjs";
 import { encodeMessage } from "./tsp.mjs";
 
 const EDITOR_METHODS = ["render", "handleInput"];
 const TSP_PREFIX = "\x1b_tsp;";
+/** Tern rejections the semantic surface survives by rebuilding before it falls back to the row copy. */
+const SEMANTIC_RESETS = 3;
 
-export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.session", adopt = false, surfaceId } = {}) {
+export function createNativeSink({
+	hello,
+	recordPath,
+	title = "pi",
+	role = "pi.session",
+	adopt = false,
+	surfaceId,
+	semantic = process.env.PI_TERN_SEMANTIC !== "0",
+} = {}) {
 	const cols = Number(hello?.cols) || process.stdout.columns || 80;
 	const rows = Math.max(5, Number(hello?.rows) || process.stdout.rows || 24);
 	const features = Array.isArray(hello?.features) ? hello.features.map(String) : [];
@@ -57,6 +71,15 @@ export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.s
 	let transcriptNodes = [];
 	const asideNodes = new Set();
 	const markdownNodes = new Map();
+	let semanticSurface = null;
+	/** The node trees last sent per region, which the next repaint is diffed against. */
+	let sentTrees = { main: [], dock: [], layer: [] };
+	let layerAdded = false;
+	let semanticResets = 0;
+	let semanticFallback = null;
+	/** Delete every region root before the next frame, so a mode switch or a rejection starts clean. */
+	let rebuildRegions = false;
+	const semanticActive = () => semantic && semanticSurface !== null;
 
 	const send = (verb, body, params) => {
 		process.stdout.write(encodeMessage(verb, body, params));
@@ -77,18 +100,77 @@ export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.s
 	 */
 	const ensureMainOps = (ops, lines = []) => {
 		if (mainAdded) return false;
-		const seed = transcriptMode === "md" ? [] : [{ id: "m", k: "rows", p: { cols, lines } }];
+		// In semantic mode the surface owns every child of `main`, so a seeded rows node would sit there untracked.
+		const seedRows = transcriptMode !== "md" && !semanticActive();
+		const seed = seedRows ? [{ id: "m", k: "rows", p: { cols, lines } }] : [];
 		ops.push(["add", "main", surface, null, { id: "main", k: "col", c: seed }]);
 		mainAdded = true;
-		rowsAdded = transcriptMode !== "md";
+		rowsAdded = seedRows;
 		return true;
 	};
-	const schedule = () => {
+	const resetRegionOps = (ops) => {
+		if (mainAdded) ops.push(["del", "main"]);
+		if (dockAdded) ops.push(["del", "dock"]);
+		if (layerAdded) ops.push(["del", "layer"]);
+		mainAdded = rowsAdded = dockAdded = editorAdded = statusAdded = layerAdded = false;
+		sentTrees = { main: [], dock: [], layer: [] };
+		figures = [];
+		markdownNodes.clear();
+		transcriptNodes = [];
+		rebuildRegions = false;
+	};
+	const scheduleFlush = (delay) => {
 		if (flushTimer !== null) return;
 		flushTimer = setTimeout(() => {
 			flushTimer = null;
 			if (dirty) sink.flush();
-		}, 0);
+		}, delay);
+	};
+	const schedule = () => scheduleFlush(0);
+	/** Give the regions back to the row copy, for good, and say why in `nativeState()`. */
+	const detachSurface = (reason) => {
+		semanticSurface = null;
+		semanticFallback = reason;
+		rebuildRegions = true;
+		lastLines = "";
+		dirty = true;
+		schedule();
+	};
+	const semanticFlush = () => {
+		let regions;
+		try {
+			sink.attachEditor(semanticSurface.editor?.());
+			dirty = false;
+			regions = semanticSurface.describe(cols);
+		} catch (error) {
+			record("surface-error", String(error?.stack ?? error));
+			detachSurface(`describe failed: ${String(error?.message ?? error)}`);
+			return;
+		}
+		const next = { main: regions?.main ?? [], dock: regions?.dock ?? [], layer: regions?.layer ?? [] };
+		open();
+		const ops = [];
+		if (rebuildRegions) resetRegionOps(ops);
+		if (!mainAdded) {
+			ops.push(["add", "main", surface, null, { id: "main", k: "col" }]);
+			mainAdded = true;
+		}
+		if (!dockAdded) {
+			ops.push(["add", "dock", surface, null, { id: "dock", k: "col" }]);
+			dockAdded = true;
+		}
+		// An empty layer root is left out: whether Tern draws anything for one is unverified.
+		if (!layerAdded && next.layer.length > 0) {
+			ops.push(["add", "layer", surface, null, { id: "layer", k: "col" }]);
+			layerAdded = true;
+		}
+		diffChildren("main", sentTrees.main, next.main, ops);
+		diffChildren("dock", sentTrees.dock, next.dock, ops);
+		if (layerAdded) diffChildren("layer", sentTrees.layer, next.layer, ops);
+		sentTrees = next;
+		if (ops.length === 0) return;
+		seq += 1;
+		send("f", { sf: surface, s: seq, ops });
 	};
 
 	/** Wrap a pi-tui Editor class so the live instance can be attached from its render/input path. */
@@ -153,6 +235,19 @@ export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.s
 		if (!event || typeof event !== "object") return;
 		if (event.sf && surface && event.sf !== surface) return;
 		try {
+			if (semanticActive() && event.ev !== "error") {
+				let consumed = false;
+				try {
+					consumed = semanticSurface.onEvent?.(event) === true;
+				} catch (error) {
+					record("surface-error", String(error?.stack ?? error));
+				}
+				if (consumed) {
+					dirty = true;
+					schedule();
+					return;
+				}
+			}
 			switch (event.ev) {
 				case "send": {
 					if (!editor) return;
@@ -184,6 +279,15 @@ export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.s
 					// The document can be rebuilt after Tern restarts or drops a region.
 					const msg = String(event.msg ?? "");
 					lastError = { at: Date.now(), msg };
+					if (semanticActive()) {
+						// The sent trees no longer match Tern's document, so diffing on would compound the error.
+						semanticResets += 1;
+						if (semanticResets > SEMANTIC_RESETS) detachSurface(`Tern rejected the semantic surface: ${msg}`);
+						else rebuildRegions = true;
+						dirty = true;
+						schedule();
+						return;
+					}
 					if (msg.includes("unknown id main") || msg.includes("unknown id m")) {
 						mainAdded = false;
 						rowsAdded = false;
@@ -235,8 +339,30 @@ export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.s
 				transcriptMode,
 				transcriptNodes: transcriptNodes.length,
 				aside: asideAdded,
+				semantic,
+				surfaceAttached: semanticSurface !== null,
+				semanticFallback,
 				lastError,
 			};
+		},
+		/**
+		 * Hand the regions to a semantic surface. The sink keeps the surface, the frames and the diff.
+		 * The latest surface replaces any earlier one, so `/reload` attaches cleanly.
+		 * Returns false in row copy mode or after a fallback, so the caller can stay inert.
+		 */
+		attachSurface(next) {
+			if (!semantic || semanticFallback !== null) return false;
+			if (!next || typeof next.describe !== "function") return false;
+			if (semanticSurface === null && (mainAdded || dockAdded)) rebuildRegions = true;
+			semanticSurface = next;
+			dirty = true;
+			schedule();
+			return true;
+		},
+		/** Ask for a repaint when session state changed without a TUI write. Coalesced like `feed`. */
+		invalidate() {
+			dirty = true;
+			scheduleFlush(100);
 		},
 		/**
 		 * Append an image to the conversation.
@@ -470,15 +596,13 @@ export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.s
 			// Repaint on any change, not only inside a synchronized-output frame: a clear on resize or a
 			// startup write updates the grid but carries no `?2026l`, which left the surface visibly stale.
 			// The 100 ms debounce below is what keeps this from flooding Tern.
-			if (flushTimer === null) {
-				flushTimer = setTimeout(() => {
-					flushTimer = null;
-					if (dirty) sink.flush();
-				}, 100);
-			}
+			scheduleFlush(100);
 		},
 		flush() {
+			// `invalidate()` can still fire after `close()` or `fallback()`.
+			if (closed) return;
 			if (!dirty && seq > 0) return;
+			if (semanticActive()) return semanticFlush();
 			if (!editor) {
 				captureEditorClass(globalThis.__piTernEditorClass);
 				captureEditorClass(globalThis.__piTernEditorBase);
@@ -489,11 +613,12 @@ export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.s
 			const parts = state ? splitComposer(all) : null;
 			const { main, dock } = parts ? { main: parts.main, dock: parts.status } : splitDock(all);
 			const fingerprint = `${state ? `${state.text}\u0000${state.cursor}` : ""}\u0001${main.join("\n")}\u0000${dock.join("\n")}`;
-			if (fingerprint === lastLines) return;
+			if (fingerprint === lastLines && !rebuildRegions) return;
 			lastLines = fingerprint;
 			open();
 			seq += 1;
 			const ops = [];
+			if (rebuildRegions) resetRegionOps(ops);
 			// Regions are root nodes added under the surface id; `main`/`dock` are their node ids.
 			// In md-transcript mode the rows node is removed once and the transcript is markdown only.
 			const created = ensureMainOps(ops, main);
@@ -575,6 +700,5 @@ export function createNativeSink({ hello, recordPath, title = "pi", role = "pi.s
 			send("x", { id: surface, keep: true });
 		},
 	};
-	globalThis.__piTernSink = sink;
 	return sink;
 }

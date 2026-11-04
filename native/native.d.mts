@@ -29,6 +29,51 @@ export interface FrameNode {
 
 
 
+/**
+ * A semantic node as the full surface describes it: what an element is, not how it looks.
+ * Ids are unique across the surface and stable across repaints, because the diff keys on them.
+ */
+export interface SemanticNode {
+	id: string;
+	/** A node kind from Tern's hello, e.g. `md`, `card`, `editor`, `rows`. */
+	k: string;
+	p?: Record<string, unknown>;
+	c?: SemanticNode[];
+}
+
+/** One repaint of the full surface: the children of each region root. */
+export interface SemanticRegions {
+	/** The transcript. */
+	main: SemanticNode[];
+	/** The composer and the rest of pi's dock. */
+	dock: SemanticNode[];
+	/** Overlays such as dialogs. */
+	layer: SemanticNode[];
+}
+
+/**
+ * What the pi-tern extension attaches to the sink in semantic mode (see `lib/surface/`).
+ * The sink calls it on every repaint and diffs the result against what it sent last.
+ */
+export interface SemanticSurface {
+	describe(cols: number): SemanticRegions;
+	/** The live composer, so Tern's `edit`, `undo` and `send` events reach pi's editor. */
+	editor?(): unknown;
+	/** A Tern event other than `error`. True consumes it, so the sink's own handling is skipped. */
+	onEvent?(event: Record<string, unknown>): boolean;
+}
+
+/** `globalThis.__piTernNative`: the sink's handle, present only in a pi started by the native launcher. */
+export interface NativeHandle {
+	state(): NativeState;
+	suspend(): boolean;
+	resume(): boolean;
+	fallback(reason?: string): boolean;
+	/** False in row copy mode, after a fallback, or once the pane was handed back. */
+	attachSurface(surface: SemanticSurface): boolean;
+	invalidate(): void;
+}
+
 /** What Tern's `hello` reply tells us about the surface vocabulary. */
 export interface Hello {
 	cols?: number;
@@ -55,6 +100,11 @@ export interface NativeState {
 	figures: number;
 	markdownNodes: number;
 	transcriptMode: string;
+	/** Semantic mode is on: the default in native mode, off with `PI_TERN_SEMANTIC=0`. */
+	semantic: boolean;
+	surfaceAttached: boolean;
+	/** Why the semantic surface was dropped for the row copy, or null. */
+	semanticFallback: string | null;
 	lastError: string | null;
 }
 
@@ -106,6 +156,10 @@ export interface NativeSink {
 	/** Emit a bare frame op list — how the probes test a node kind the sink has no method for. */
 	frame(ops: unknown): SinkResult;
 	attachEditor(instance: unknown): void;
+	/** Hand the regions to a semantic surface. False in row copy mode or after a fallback. */
+	attachSurface(surface: SemanticSurface): boolean;
+	/** Repaint soon, for session state that changed without a TUI write. */
+	invalidate(): void;
 	/** Strip TSP frames from pty input and route `e` events; returns what pi's TUI should see. */
 	handleInput(data: string): string;
 	feed(data: string): void;
@@ -122,6 +176,8 @@ export interface CreateNativeSinkOptions {
 	role?: string;
 	adopt?: boolean;
 	surfaceId?: string | null;
+	/** Defaults to on unless `PI_TERN_SEMANTIC=0`. */
+	semantic?: boolean;
 }
 
 export function createNativeSink(options?: CreateNativeSinkOptions): NativeSink;
@@ -212,6 +268,18 @@ export declare function probe(options?: ProbeOptions): Promise<ProbeResult>;
 /** Record why the handshake failed, so `/tern diagnose` can say more than "it did not engage". */
 export declare function recordProbeFailure(stateFile: string, reason: string, attempts: number): void;
 export declare function clearProbeFailure(stateFile: string): void;
+
+// native/tree-diff.mjs: semantic node trees into frame ops.
+/** Changed props, with removed ones as null, or null when nothing changed. */
+export declare function propDelta(oldProps?: Record<string, unknown>, newProps?: Record<string, unknown>): Record<string, unknown> | null;
+/** Push the `add`, `set` and `del` ops that turn `prev` into `next` under `parentId`, and return `ops`. */
+export declare function diffChildren(parentId: string, prev: SemanticNode[], next: SemanticNode[], ops: FrameOp[]): FrameOp[];
+
+// native/patch.mjs: the loader hook.
+export declare function initialize(data?: { scope?: string }): void;
+/** The patched source for `url`, or null when the module is left alone. Out of `releaseScope` nothing is patched. */
+export declare function transformSource(url: string, source: string, releaseScope?: string): string | null;
+export declare function load(url: string, context: unknown, next: (url: string, context: unknown) => Promise<{ format?: string; source?: unknown }>): Promise<{ format?: string; source?: unknown }>;
 
 export const TSP_VERSION: number;
 export const TSP_PREFIX: string;

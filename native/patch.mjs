@@ -5,12 +5,18 @@
  *  - pi-tui editor.js / pi custom-editor.js: register the editor classes so the
  *    sink can capture the live composer and publish a native `editor` node.
  * Fail-open: any sink error falls back to the original ANSI write.
+ *
+ * Only the launched release's own packages are patched. Extensions such as pi-subagents import a
+ * second copy of pi-tui from ~/.pi/agent/npm, and patching that copy created a second sink. It
+ * opened a second surface and took over the global handle, so semantic repaints went to a sink
+ * pi never draws through.
  */
 const backendUrl = new URL("./backend.mjs", import.meta.url).href;
 
 const TERMINAL_PATCH = `
 import { createNativeSink as __createNativeSink } from ${JSON.stringify(backendUrl)};
-if (process.env.PI_TERN_NATIVE === "1" && typeof ProcessTerminal === "function") {
+// The handle is the process-wide singleton: a second copy of this module must not open a second surface.
+if (process.env.PI_TERN_NATIVE === "1" && typeof ProcessTerminal === "function" && !globalThis.__piTernNative) {
   const __hello = (() => { try { return JSON.parse(process.env.PI_TERN_HELLO || "{}"); } catch { return {}; } })();
   const __sink = __createNativeSink({
     hello: __hello,
@@ -44,6 +50,9 @@ if (process.env.PI_TERN_NATIVE === "1" && typeof ProcessTerminal === "function")
     state: () => __sink.nativeState(),
     suspend: () => __sink.suspend(),
     resume: () => __sink.resume(),
+    // The full surface in lib/surface/ reaches the sink through these two only.
+    attachSurface: (surface) => __sink.active !== false && __sink.attachSurface(surface),
+    invalidate: () => __sink.invalidate(),
     /**
      * Give the pane back to pi's own TUI and stop drawing a surface.
      *
@@ -72,18 +81,27 @@ const CUSTOM_EDITOR_CAPTURE = `
 try { globalThis.__piTernEditorClass = CustomEditor; } catch {}
 `;
 
+/** URL prefix of the release's `node_modules`, set by `register-hook.mjs`. Empty patches every copy. */
+let scope = "";
+
+export function initialize(data) {
+	scope = typeof data?.scope === "string" ? data.scope : "";
+}
+
+/** The patched source for `url`, or null when the module is left alone. */
+export function transformSource(url, source, releaseScope = scope) {
+	if (releaseScope && !url.startsWith(releaseScope)) return null;
+	if (url.includes("/@earendil-works/pi-tui/dist/terminal.js")) return `${source}\n${TERMINAL_PATCH}`;
+	if (url.includes("/@earendil-works/pi-tui/dist/components/editor.js")) return `${source}\n${EDITOR_CAPTURE}`;
+	if (url.includes("/pi-coding-agent/dist/modes/interactive/components/custom-editor.js")) {
+		return `${source}\n${CUSTOM_EDITOR_CAPTURE}`;
+	}
+	return null;
+}
+
 export async function load(url, context, next) {
 	const result = await next(url, context);
 	if (result.format !== "module") return result;
-	const source = String(result.source);
-	if (url.includes("/@earendil-works/pi-tui/dist/terminal.js")) {
-		return { ...result, source: `${source}\n${TERMINAL_PATCH}` };
-	}
-	if (url.includes("/@earendil-works/pi-tui/dist/components/editor.js")) {
-		return { ...result, source: `${source}\n${EDITOR_CAPTURE}` };
-	}
-	if (url.includes("/pi-coding-agent/dist/modes/interactive/components/custom-editor.js")) {
-		return { ...result, source: `${source}\n${CUSTOM_EDITOR_CAPTURE}` };
-	}
-	return result;
+	const patched = transformSource(url, String(result.source));
+	return patched === null ? result : { ...result, source: patched };
 }

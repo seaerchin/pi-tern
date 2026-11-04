@@ -13,8 +13,8 @@
  *    with a `tern browser` CLI fallback, including image captures pi can see;
  *  - testing/inspection: pane capture and control-endpoint commands.
  *
- * Deliberately NOT here: native pi-tui surfaces (transcript/composer/dock).
- * A pure extension cannot own pi's renderer; that needs the core back-port.
+ * The full surface (lib/surface/) describes the session as semantic nodes for the native
+ * launcher's sink. It is inert unless pi was started by `native/pi-tern.mjs`.
  *
  * Environment switches:
  *   PI_TERN_PROBE=0        no TSP hello probe
@@ -26,6 +26,7 @@
  *   PI_TERN_FORCE=1        try Tern features outside a Tern pane
  *   PI_TERN_AGENT=pi       agent binary used by tern_fleet
  *   PI_TERN_INLINE_IMAGES=1  native mode: append figures into the transcript
+ *   PI_TERN_SEMANTIC=0     native mode: copy pi's screen as rows instead of the full surface
  */
 import { createHash } from "node:crypto";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
@@ -56,6 +57,7 @@ import { encodeHello, extractTspMessages, isDa1Reply, looksLikeTsp, normalizeOsc
 import { describeIdentity, readIdentityEnv, resolveIdentity, type TernIdentity } from "./lib/identity.ts";
 import { dockBlock, keepPaneOpen, moveBlock, paneProcess, pipBlock, renameTarget, type PaneProcess } from "./lib/session.ts";
 import { PLUGIN_VERSION } from "./lib/version.ts";
+import { registerNativeSurface } from "./lib/surface/index.ts";
 
 // Derived from package.json. A hand-maintained copy of this number is what caused the 1.1.3 P0,
 // where the extension advertised one version and the plugin answered with another and every
@@ -908,6 +910,7 @@ async function captureWithRetry(
 	throw new Error(`capture failed: ${message}`);
 }
 export default function piTern(pi: ExtensionAPI) {
+	registerNativeSurface(pi);
 	pi.on("session_start", async (event, ctx) => {
 		// `session_start` is pi's only session-lifecycle event, and it carries the reason:
 		// "startup" | "reload" | "new" | "resume" | "fork". A resume or a fork is exactly when this
