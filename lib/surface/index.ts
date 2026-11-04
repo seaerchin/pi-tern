@@ -32,9 +32,6 @@ function recordSurfaceLog(message: string): void {
 	}
 }
 
-/** #16 gives dialogs a `focus()`, so an open modal dialog takes the keys ahead of the composer. */
-type FocusOwner = { focus?(): string | null };
-
 /** An empty widget whose factory is the supported way to receive pi's TUI root. */
 const TUI_WIDGET = "pi-tern-surface";
 
@@ -60,10 +57,10 @@ export function registerNativeSurface(pi: ExtensionAPI): void {
 			const composerNodes = composer.describe(cols);
 			return {
 				main: transcript.describe(cols),
-				dock: dock.describe(cols, composerNodes),
+				dock: dock.describe(cols, composerNodes, layer.length > 0),
 				// Dialogs last: a modal dialog sits above the autocomplete list.
 				layer: [...composer.overlays(cols), ...layer],
-				focus: (dialogs as FocusOwner).focus?.() ?? composer.focus(),
+				focus: dialogs.focus?.() ?? composer.focus(),
 			};
 		},
 		editor: () => composer.editor(),

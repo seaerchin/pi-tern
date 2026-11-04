@@ -12,6 +12,12 @@
 
 Built-in dialogs (`select`, `confirm`, `input`, `editor`) replace the composer in Pi's editor slot, and no supported API exposes their state. The surface reads the dialog component there by shape (for the selector: `baseTitle`, `options`, `selectedIndex`), mirrors it as a native overlay, and answers it by sending keys through the component's public `handleInput()`. If the shape doesn't match, the dialog shows as rows. Decided in [issue 15](https://github.com/seaerchin/pi-tern/issues/15).
 
+Built in [issue 16](https://github.com/seaerchin/pi-tern/issues/16):
+
+- The `input` and `editor` fields carry the `mode` label `PTY`. Tern then edits nothing natively and sends every key to Pi, so Pi's value stays the only truth. Tern's selection editing is lost in dialog fields. Replaying Tern's `edit` events as keys was rejected because a key could apply twice.
+- The `input` and `editor` overlays have Submit and Cancel buttons, so the mouse can answer them. They send Enter and Escape. Enter submits in Pi's editor dialog too.
+- Tern 0.9.10 sends no event when a modal overlay closes. The overlay has no close control, a click on its backdrop sends nothing, and Escape reaches Pi as a key. So Escape cancels through Pi itself.
+
 ## Extended: extension renderer rows
 
 Custom messages and custom entries drawn by an extension renderer show as rows from that renderer (issue 8). No supported API reaches a registered renderer, so its output exists only in Pi's `CustomMessageComponent` and `CustomEntryComponent`. The walk renders those components too, with the same `children`, class names and `render()`. Each component matches its saved item by order within its class, and only while the two counts agree. If they differ, as when an extension saves entries it never renders, that class shows its default and the walk logs it, so a renderer's rows never sit next to the wrong item. A custom message whose child has Pi's default shape (a `Box` of `Text`, `Spacer` and `Markdown`) has no renderer and shows as Markdown. Decided in [issue 10](https://github.com/seaerchin/pi-tern/issues/10).

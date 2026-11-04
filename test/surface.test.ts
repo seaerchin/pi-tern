@@ -86,6 +86,15 @@ test("while a dialog holds the editor slot, the slot shows as rows", () => {
 	assert.deepEqual(nodes[2], { id: "kx", k: "rows", p: { cols: 80, lines: ["Pick one", "> a", "  b"] } });
 });
 
+test("while the dialogs area shows the dialog as an overlay, the editor slot stays empty", () => {
+	const tui = fakeTui(box(rows("Pick one", "> a", "  b")));
+	const nodes = createDock(fakePi().pi, { tui: () => tui, invalidate() {}, log() {}, blob: () => undefined }).describe(80, [], true);
+	assert.deepEqual(
+		nodes.map((node) => node.id),
+		["ks", "kwa", "kf"],
+	);
+});
+
 /** A pi whose handlers and widgets the test can drive. */
 function fakePi() {
 	type Handler = (event: unknown, ctx: unknown) => void;
@@ -170,5 +179,23 @@ test("inside the native surface it attaches once pi's TUI arrives through the wi
 		assert.equal(regions.dock[2].p?.mode, "NORMAL");
 		assert.equal(regions.focus, "ke", "the composer holds Tern's focus while no dialog does");
 		assert.ok(attached[0].editor?.(), "the live editor is handed to the sink");
+	});
+});
+
+test("an open dialog fills layer, empties the editor slot and takes the focus from the composer", () => {
+	const attached: SemanticSurface[] = [];
+	withHandle(fakeHandle(true, attached), () => {
+		const { pi, emit } = fakePi();
+		registerNativeSurface(pi);
+		const selector = { baseTitle: "Pick", options: ["a", "b"], selectedIndex: 0, render: () => ["Pick"], handleInput() {} };
+		const slot = box(fakeEditor("", { line: 0, col: 0 }));
+		const tui = fakeTui(slot);
+		emit("session_start", {}, { hasUI: true, ui: { setWidget: (_key: string, factory: (root: unknown) => unknown) => factory(tui) } });
+		assert.equal(attached[0].describe(80).focus, "ke");
+		slot.children = [selector];
+		const regions = attached[0].describe(80);
+		assert.deepEqual(regions.layer.map((node) => [node.id, node.k]), [["dlg1", "overlay"]]);
+		assert.deepEqual(regions.dock.map((node) => node.id), ["ks", "kwa", "kf"]);
+		assert.equal(regions.focus, "dlg1l");
 	});
 });

@@ -4,14 +4,17 @@
  * Each container is rendered by its own components as one `rows` node, in pi's dock order. pi draws
  * its working indicator in the composer's top border, which the `editor` node replaces, so the
  * working state shows as a `shimmer` node in the status container's place. While a dialog holds
- * the editor slot, the slot shows as rows.
+ * the editor slot, the slot shows as rows, unless the dialogs area mirrors it as an overlay.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { PI_SLOTS, piSlot, renderRows, type SemanticNode, type SurfaceHost, type TernEvent, type TuiComponent } from "./host.ts";
 
 export interface Dock {
-	/** The children of `dock`, with the composer's nodes placed where pi's editor slot is. */
-	describe(cols: number, composer: SemanticNode[]): SemanticNode[];
+	/**
+	 * The children of `dock`, with the composer's nodes placed where pi's editor slot is.
+	 * `dialogShown` leaves the slot empty, because the overlay already shows the dialog there.
+	 */
+	describe(cols: number, composer: SemanticNode[], dialogShown?: boolean): SemanticNode[];
 	/** True when the event was for a dock node. */
 	onEvent(event: TernEvent): boolean;
 }
@@ -56,7 +59,7 @@ export function createDock(pi: ExtensionAPI, host: SurfaceHost): Dock {
 	pi.on("agent_end", () => setWorking(false));
 
 	return {
-		describe(cols, composer) {
+		describe(cols, composer, dialogShown = false) {
 			const tui = host.tui();
 			if (!tui) return [];
 			const nodes: SemanticNode[] = [];
@@ -71,7 +74,7 @@ export function createDock(pi: ExtensionAPI, host: SurfaceHost): Dock {
 			if (working && nodes.length === statusCount) nodes.push({ id: "kw", k: "shimmer", p: { text: WORKING_TEXT } });
 			pushRows("widgetsAbove");
 			if (composer.length > 0) nodes.push(...composer);
-			else nodes.push({ id: "kx", k: "rows", p: { cols, lines: renderRows(piSlot(tui, "editor"), cols) } });
+			else if (!dialogShown) nodes.push({ id: "kx", k: "rows", p: { cols, lines: renderRows(piSlot(tui, "editor"), cols) } });
 			pushRows("widgetsBelow");
 			pushRows("footer");
 			return nodes;

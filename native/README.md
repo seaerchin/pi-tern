@@ -31,6 +31,8 @@ Semantic mode is the default. The pi-tern extension loads `lib/surface/`, which 
 surface to the sink at session start. The sink then diffs each region's node tree into `add`, `set`
 and `del` ops (`native/tree-diff.mjs`). `PI_TERN_SEMANTIC=0` keeps the row copy. Without the fork's
 extension, or after Tern rejects the surface four times, the sink also stays on the row copy.
+Semantic mode opens the surface with `listen: true`, because Tern 0.9.10 sends no events to a
+surface opened with `listen: false`.
 
 Images reach Tern as blobs: `blob(data, mime)` sends the bytes once with verb `b` and returns the
 sha256 id an `image` node names in `blob`. Tern 0.9.10 accepts inline `data` on an `image` node but
