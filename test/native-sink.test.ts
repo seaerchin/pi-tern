@@ -374,6 +374,25 @@ test("Tern events reach the surface first, and repeated rejections fall back to 
 	}
 });
 
+test("a rejection's frame and op index name the refused node to the surface", () => {
+	const cap = capture();
+	try {
+		const sink = createNativeSink({ hello: HELLO, surfaceId: "test1" });
+		const rejected: string[][] = [];
+		const surface = fakeSurface({ main: [{ id: "xt1", k: "md", p: { text: "a" } }], dock: [], layer: [] });
+		sink.attachSurface({ ...surface, rejected: (id, message) => rejected.push([id, message]) });
+		sink.flush();
+		const frame = cap.frames.filter((captured) => captured.verb === "f").at(-1)?.body as { s: number; ops: FrameOp[] };
+		const index = frame.ops.findIndex((op) => op[1] === "xt1");
+		sink.handleInput(tspEvent({ ev: "error", sf: "test1", s: frame.s, op: index, msg: "unknown kind md" }));
+		sink.handleInput(tspEvent({ ev: "error", sf: "test1", s: frame.s + 5, op: 0, msg: "no such frame" }));
+		assert.deepEqual(rejected, [["xt1", "unknown kind md"]]);
+		sink.close();
+	} finally {
+		cap.restore();
+	}
+});
+
 test("blob sends image bytes once with verb b, named by their sha256, in chunks over the apc limit", async () => {
 	const { createHash } = await import("node:crypto");
 	const written: string[] = [];

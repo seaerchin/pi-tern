@@ -63,6 +63,8 @@ export interface SemanticSurface {
 	editor?(): unknown;
 	/** A Tern event other than `error`. True consumes it, so the sink's own handling is skipped. */
 	onEvent?(event: Record<string, unknown>): boolean;
+	/** Tern rejected the op that sent `nodeId`, so the surface can stop describing that node the same way. */
+	rejected?(nodeId: string, message: string): void;
 }
 
 /** `globalThis.__piTernNative`: the sink's handle, present only in a pi started by the native launcher. */
