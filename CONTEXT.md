@@ -36,6 +36,10 @@ _Avoid_: whole-session surface
 A TSP node that states what an element is, such as a message, a tool call or an editor.
 _Avoid_: native node, widget
 
+**Describer**:
+A function registered for one key, such as a tool name, that turns an item's data into semantic nodes.
+_Avoid_: renderer, adapter, node provider
+
 **Row fallback**:
 Copied screen rows shown inside a native surface for an interface that has no semantic nodes.
 _Avoid_: rows surface, ANSI fallback
