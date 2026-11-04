@@ -9,7 +9,7 @@
  * `undo` only for a focused field.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getKeybindings } from "@earendil-works/pi-tui";
+import { bindingSequence, keySequence } from "./keys.ts";
 import { piSlot, renderRows, type SemanticNode, type SurfaceHost, type TernEvent, type TuiComponent } from "./host.ts";
 
 export interface Composer {
@@ -249,35 +249,14 @@ export function resolveEdit(current: string, event: TernEvent): { text: string; 
 	return { text, cursor, changed: from !== to || insert !== "" };
 }
 
-const CSI_U_KEYS: Record<string, number> = { escape: 27, esc: 27, enter: 13, return: 13, tab: 9, space: 32, backspace: 127 };
-const CSI_U_MODIFIERS: Record<string, number> = { shift: 1, alt: 2, ctrl: 4, super: 8 };
-
-/** A pi key id such as `ctrl+-` as the Kitty `CSI u` sequence pi-tui parses, or undefined. */
-export function keySequence(keyId: string): string | undefined {
-	const id = keyId.toLowerCase();
-	const key = id === "+" || id.endsWith("++") ? "+" : id.slice(id.lastIndexOf("+") + 1);
-	let modifiers = 0;
-	for (const part of id.slice(0, id.length - key.length).split("+").filter(Boolean)) {
-		const bit = CSI_U_MODIFIERS[part];
-		if (bit === undefined) return undefined;
-		modifiers |= bit;
-	}
-	const code = CSI_U_KEYS[key] ?? ([...key].length === 1 ? key.codePointAt(0) : undefined);
-	if (code === undefined) return undefined;
-	return modifiers === 0 ? `\x1b[${code}u` : `\x1b[${code};${modifiers + 1}u`;
-}
+export { keySequence };
 
 /**
  * The bytes of pi's undo key, so an `undo` event goes through `handleInput` like the key would.
  * That keeps `pi-vim-editor`'s own undo bookkeeping in step. Undefined when no bound key encodes.
  */
 export function undoKeySequence(): string | undefined {
-	const keybindings = getKeybindings();
-	for (const keyId of keybindings.getKeys("tui.editor.undo")) {
-		const sequence = keySequence(keyId);
-		if (sequence && keybindings.matches(sequence, "tui.editor.undo")) return sequence;
-	}
-	return undefined;
+	return bindingSequence("tui.editor.undo");
 }
 
 /**

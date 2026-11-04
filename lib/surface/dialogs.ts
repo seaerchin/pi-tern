@@ -1,6 +1,6 @@
 /**
  * Dialogs area (`layer`): pi's built-in `select`, `confirm`, `input` and `editor` dialogs as modal
- * overlays.
+ * overlays, and its `/tree` selector as a native picker (`tree.ts`).
  *
  * Pi's dialog stays pi's. The overlay mirrors the dialog component in pi's editor slot, read by
  * shape, and Tern's events reach it as keys through its public `handleInput()` (ADR 0002,
@@ -8,6 +8,8 @@
  * doesn't match shows as rows in the dock.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { KEYS } from "./keys.ts";
+import { readTree, TREE_ID, treeKeys, treeNode } from "./tree.ts";
 import { piSlot, type SemanticNode, type SurfaceHost, type TernEvent, type TuiComponent } from "./host.ts";
 
 export interface Dialogs {
@@ -19,8 +21,7 @@ export interface Dialogs {
 	onEvent(event: TernEvent): boolean;
 }
 
-/** The keys sent through `handleInput()`, as pi-tui's default keybindings read them. */
-export const KEYS = { up: "\x1b[A", down: "\x1b[B", enter: "\r", escape: "\x1b" } as const;
+export { KEYS };
 
 /** The options pi's `confirm` passes to its selector. */
 const CONFIRM_OPTIONS = ["Yes", "No"];
@@ -220,6 +221,7 @@ export function isDialogEvent(event: TernEvent): boolean {
 
 /** Called once at extension load inside the native surface. Register `pi.on` handlers here. */
 export function createDialogs(_pi: ExtensionAPI, host: SurfaceHost): Dialogs {
+	const unknownEvents = new Set<string>();
 	const numbers = new WeakMap<DialogComponent, number>();
 	let next = 0;
 	const current = (): { dialog: Dialog; n: number } | null => {
@@ -235,10 +237,13 @@ export function createDialogs(_pi: ExtensionAPI, host: SurfaceHost): Dialogs {
 	};
 	return {
 		describe() {
+			const tree = readTree(host.tui());
+			if (tree) return [treeNode(tree)];
 			const open = current();
 			return open ? [dialogNode(open.dialog, open.n)] : [];
 		},
 		focus() {
+			if (readTree(host.tui())) return TREE_ID;
 			const open = current();
 			return open ? dialogFocus(open.dialog, open.n) : null;
 		},
@@ -246,6 +251,17 @@ export function createDialogs(_pi: ExtensionAPI, host: SurfaceHost): Dialogs {
 			// A dialog's events are consumed even when they answer nothing, so the sink never applies a
 			// stale `edit` or `undo` for a dialog field to the composer.
 			if (!isDialogEvent(event)) return false;
+			if (event.id === TREE_ID) {
+				const tree = readTree(host.tui());
+				const keys = tree ? treeKeys(tree, event) : null;
+				if (tree && keys) for (const key of keys) tree.component.handleInput(key);
+				const shape = `${String(event.ev)} ${Object.keys(event).sort().join(",")}`;
+				if (tree && !keys && !unknownEvents.has(shape)) {
+					unknownEvents.add(shape);
+					host.log(`tree: picker event not mapped: ${JSON.stringify(event)}`);
+				}
+				return true;
+			}
 			const open = current();
 			const keys = open ? dialogKeys(open.dialog, open.n, event) : null;
 			if (open && keys) for (const key of keys) open.dialog.component.handleInput(key);

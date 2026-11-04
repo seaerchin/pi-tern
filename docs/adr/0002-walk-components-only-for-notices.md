@@ -21,3 +21,12 @@ Built in [issue 16](https://github.com/seaerchin/pi-tern/issues/16):
 ## Extended: extension renderer rows
 
 Custom messages and custom entries drawn by an extension renderer show as rows from that renderer (issue 8). No supported API reaches a registered renderer, so its output exists only in Pi's `CustomMessageComponent` and `CustomEntryComponent`. The walk renders those components too, with the same `children`, class names and `render()`. Each component matches its saved item by order within its class, and only while the two counts agree. If they differ, as when an extension saves entries it never renders, that class shows its default and the walk logs it, so a renderer's rows never sit next to the wrong item. A custom message whose child has Pi's default shape (a `Box` of `Text`, `Spacer` and `Markdown`) has no renderer and shows as Markdown. Decided in [issue 10](https://github.com/seaerchin/pi-tern/issues/10).
+
+## Extended: the `/tree` selector as a picker
+
+Pi's `/tree` selector shows as Tern's native `picker` in its tree layout, not as rows. It follows the dialogs' rule.
+
+- The picker mirrors the selector's `TreeList`, read by shape: its filtered rows, selection, search text, filter and leaf.
+- Clicks are sent as pi's own keys through the selector's public `handleInput()`. A row click moves the selection, a double click or Go here confirms, a tab click presses that filter's binding, and Close presses Escape.
+- Tern sends a tab click as `{ev: "action", act: "tab", value: <tab id>}`, measured on 0.9.10.
+- While pi's label editor is open the selector stays rows. A changed shape also stays rows.
