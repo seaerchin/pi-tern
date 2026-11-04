@@ -40,6 +40,10 @@ _Avoid_: native node, widget
 Copied screen rows shown inside a native surface for an interface that has no semantic nodes.
 _Avoid_: rows surface, ANSI fallback
 
+**Notice**:
+A transcript item Pi shows but never saves, such as a warning from an extension or Pi's own error.
+_Avoid_: notification, toast, status message
+
 **Transcript**:
 The ordered record of a session's messages, thinking and tool calls.
 _Avoid_: conversation, history, main region
