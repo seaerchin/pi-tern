@@ -54,6 +54,10 @@ if (process.env.PI_TERN_NATIVE === "1" && typeof ProcessTerminal === "function" 
     attachSurface: (surface) => __sink.active !== false && __sink.attachSurface(surface),
     invalidate: () => __sink.invalidate(),
     blob: (data, mime) => (__sink.active !== false ? __sink.blob(data, mime) : undefined),
+    // index.ts and other extensions show panels in Tern's right-edge sheet through these.
+    aside: (input) => (__sink.active !== false ? __sink.aside(input) : { ok: false, reason: "native surface is inactive" }),
+    showAside: () => (__sink.active !== false ? __sink.showAside() : { ok: false, reason: "native surface is inactive" }),
+    hideAside: () => (__sink.active !== false ? __sink.hideAside() : { ok: false, reason: "native surface is inactive" }),
     /**
      * Give the pane back to pi's own TUI and stop drawing a surface.
      *
