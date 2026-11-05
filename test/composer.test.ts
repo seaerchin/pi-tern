@@ -15,6 +15,7 @@ import {
 	createComposer,
 	EDITOR_ID,
 	editorNode,
+	insertBadge,
 	keySequence,
 	resolveEdit,
 	SELECTION_DECOR,
@@ -93,6 +94,12 @@ test("the editor node maps each Vim mode to a label, and Insert to none", () => 
 	assert.deepEqual(labels, [undefined, "NORMAL", "VISUAL", "VISUAL LINE", "VISUAL BLOCK", "REPLACE"]);
 	assert.equal(editorNode(fakeEditor("x", { mode: "normal", pending: "2d" }).editor as PiEditor).p?.mode, "NORMAL 2d");
 	assert.equal(editorNode(fakeEditor("x").editor as PiEditor).p?.mode, undefined, "no pi-vim-editor, no label");
+});
+
+test("Insert shows a badge beside the editor, and no other mode does", () => {
+	assert.equal(insertBadge(fakeEditor("x", { mode: "insert" }).editor as PiEditor)?.p?.text, "INSERT");
+	for (const mode of ["normal", "visual", "replace"]) assert.equal(insertBadge(fakeEditor("x", { mode }).editor as PiEditor), null);
+	assert.equal(insertBadge(fakeEditor("x").editor as PiEditor), null, "no pi-vim-editor, no badge");
 });
 
 test("the editor node is sendable unless pi disabled submit, and has no selection without one published", () => {

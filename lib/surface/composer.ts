@@ -32,6 +32,7 @@ export const VIM_STATUS = Symbol.for("pi-vim-editor");
 
 export const EDITOR_ID = "ke";
 export const AUTOCOMPLETE_ID = "ka";
+export const INSERT_BADGE_ID = "kei";
 
 /** `pi-vim-editor`'s published Vim status. `selection` comes from capability version 2. */
 export interface VimStatus {
@@ -202,6 +203,15 @@ export function editorNode(editor: PiEditor): SemanticNode {
 	return { id: EDITOR_ID, k: "editor", p: props };
 }
 
+/**
+ * The Insert label as a badge beside the editor, because a `mode` on the editor node stops Tern's
+ * native editing. Null outside Insert.
+ */
+export function insertBadge(editor: PiEditor): SemanticNode | null {
+	if (editor[VIM_STATUS]?.status?.()?.mode !== "insert") return null;
+	return { id: INSERT_BADGE_ID, k: "badge", p: { text: "INSERT", tone: "accent" } };
+}
+
 /** Pi's normalization for stored text (`Editor.setText`), so caret offsets match what it keeps. */
 function normalizeText(text: string): string {
 	return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\t/g, "    ");
@@ -317,7 +327,9 @@ export function createComposer(pi: ExtensionAPI, host: SurfaceHost): Composer {
 		editor: () => findEditor(host.tui()),
 		describe() {
 			const editor = findEditor(host.tui());
-			return editor ? [editorNode(editor)] : [];
+			if (!editor) return [];
+			const badge = insertBadge(editor);
+			return badge ? [badge, editorNode(editor)] : [editorNode(editor)];
 		},
 		overlays(cols) {
 			const editor = findEditor(host.tui());
