@@ -97,7 +97,7 @@ test("the editor node maps each Vim mode to a label, and Insert to none", () => 
 });
 
 test("Insert shows a badge beside the editor, and no other mode does", () => {
-	assert.equal(insertBadge(fakeEditor("x", { mode: "insert" }).editor as PiEditor)?.p?.text, "INSERT");
+	assert.deepEqual(insertBadge(fakeEditor("x", { mode: "insert" }).editor as PiEditor)?.p, { text: "INSERT", tone: "success" });
 	for (const mode of ["normal", "visual", "replace"]) assert.equal(insertBadge(fakeEditor("x", { mode }).editor as PiEditor), null);
 	assert.equal(insertBadge(fakeEditor("x").editor as PiEditor), null, "no pi-vim-editor, no badge");
 });

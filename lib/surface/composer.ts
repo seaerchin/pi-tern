@@ -204,12 +204,12 @@ export function editorNode(editor: PiEditor): SemanticNode {
 }
 
 /**
- * The Insert label as a badge beside the editor, because a `mode` on the editor node stops Tern's
+ * The Insert label as a badge after the editor, because a `mode` on the editor node stops Tern's
  * native editing. Null outside Insert.
  */
 export function insertBadge(editor: PiEditor): SemanticNode | null {
 	if (editor[VIM_STATUS]?.status?.()?.mode !== "insert") return null;
-	return { id: INSERT_BADGE_ID, k: "badge", p: { text: "INSERT", tone: "accent" } };
+	return { id: INSERT_BADGE_ID, k: "badge", p: { text: "INSERT", tone: "success" } };
 }
 
 /** Pi's normalization for stored text (`Editor.setText`), so caret offsets match what it keeps. */
@@ -329,7 +329,7 @@ export function createComposer(pi: ExtensionAPI, host: SurfaceHost): Composer {
 			const editor = findEditor(host.tui());
 			if (!editor) return [];
 			const badge = insertBadge(editor);
-			return badge ? [badge, editorNode(editor)] : [editorNode(editor)];
+			return badge ? [editorNode(editor), badge] : [editorNode(editor)];
 		},
 		overlays(cols) {
 			const editor = findEditor(host.tui());
